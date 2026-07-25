@@ -5,6 +5,8 @@ import { ContractLanguage } from '../../types'
 interface FormData {
   activity: ActivityConfig
   activitySubtype?: string
+  numberOfPersons?: number
+  totalPrice?: number
   clientName: string
   clientFirstname: string
   clientPhone: string
@@ -31,6 +33,9 @@ export default function Step4Contract({ formData, onNext, onBack }: Props) {
   const hasDrawn = useRef(false)
 
   const text = CONTRACT_TEXTS[language]
+
+  // Prix à afficher dans le contrat
+  const displayPrice = formData.totalPrice ?? formData.activity.price
 
   const getPos = (e: React.MouseEvent | React.TouchEvent, canvas: HTMLCanvasElement) => {
     const rect = canvas.getBoundingClientRect()
@@ -205,6 +210,13 @@ export default function Step4Contract({ formData, onNext, onBack }: Props) {
                 {formData.activitySubtype ? ` — ${formData.activitySubtype}` : ''}
               </strong>
             </div>
+            {/* Nombre de personnes pour bouée */}
+            {formData.numberOfPersons && formData.numberOfPersons > 1 && (
+              <div className="col-span-2">
+                <span className="text-gray-400">Nombre de personnes :</span>{' '}
+                <strong>{formData.numberOfPersons}</strong>
+              </div>
+            )}
             {formData.jetSkiId && (
               <div>
                 <span className="text-gray-400">{text.fields.jetSki} :</span>{' '}
@@ -217,7 +229,12 @@ export default function Step4Contract({ formData, onNext, onBack }: Props) {
             </div>
             <div>
               <span className="text-gray-400">{text.fields.price} :</span>{' '}
-              <strong>{formData.activity.price.toLocaleString()} {CONFIG.currency}</strong>
+              <strong>{displayPrice.toLocaleString()} {CONFIG.currency}</strong>
+              {formData.numberOfPersons && formData.numberOfPersons > 1 && (
+                <span className="text-gray-400 ml-1">
+                  ({formData.activity.price.toLocaleString()} × {formData.numberOfPersons} pers.)
+                </span>
+              )}
             </div>
           </div>
         </div>
