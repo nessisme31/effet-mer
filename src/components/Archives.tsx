@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { CONFIG } from '../config'
 import { Rental } from '../types'
+import { openContractPDF } from '../utils/contractHTML'
 
 const fmt = (iso: string) =>
   new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
@@ -120,6 +121,14 @@ export default function Archives() {
               <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
                 📋 {rental.contract_number}
               </span>
+            </div>
+            <div className="mt-3">
+              <button
+                onClick={() => openContractPDF(rental)}
+                className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-blue-200"
+              >
+                📄 Télécharger le contrat
+              </button>
             </div>
           </div>
         ))}
