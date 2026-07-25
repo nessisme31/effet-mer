@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { CONFIG, ActivityConfig } from '../../config'
 
 interface Props {
-  onNext: (activity: ActivityConfig, subtype?: string) => void
+  onNext: (activity: ActivityConfig, subtype?: string, numberOfPersons?: number) => void
 }
 
 const ICONS: Record<string, string> = {
@@ -19,6 +19,7 @@ const ICONS: Record<string, string> = {
 export default function Step1Activity({ onNext }: Props) {
   const [selectedActivity, setSelectedActivity] = useState<ActivityConfig | null>(null)
   const [selectedSubtype, setSelectedSubtype] = useState('')
+  const [numberOfPersons, setNumberOfPersons] = useState(1)
 
   // Group by activity name
   const grouped = CONFIG.activities.reduce((acc, act) => {
@@ -27,7 +28,15 @@ export default function Step1Activity({ onNext }: Props) {
     return acc
   }, {} as Record<string, ActivityConfig[]>)
 
+  const isBouee = selectedActivity?.hasSubtype ?? false
   const canContinue = selectedActivity && (!selectedActivity.hasSubtype || selectedSubtype)
+
+  // Prix total calculé
+  const totalPrice = selectedActivity
+    ? isBouee
+      ? selectedActivity.price * numberOfPersons
+      : selectedActivity.price
+    : 0
 
   return (
     <div>
@@ -44,7 +53,7 @@ export default function Step1Activity({ onNext }: Props) {
               {variants.map(activity => (
                 <button
                   key={activity.id}
-                  onClick={() => { setSelectedActivity(activity); setSelectedSubtype('') }}
+                  onClick={() => { setSelectedActivity(activity); setSelectedSubtype(''); setNumberOfPersons(1) }}
                   className={`p-3 rounded-xl border-2 text-left transition-all ${
                     selectedActivity?.id === activity.id
                       ? 'border-blue-500 bg-blue-50'
@@ -54,6 +63,7 @@ export default function Step1Activity({ onNext }: Props) {
                   <div className="font-medium text-gray-700 text-sm">{activity.duration}</div>
                   <div className="text-blue-700 font-bold mt-0.5">
                     {activity.price.toLocaleString()} {CONFIG.currency}
+                    {activity.hasSubtype && <span className="text-xs font-normal text-gray-500"> /pers.</span>}
                   </div>
                 </button>
               ))}
@@ -84,20 +94,46 @@ export default function Step1Activity({ onNext }: Props) {
         </div>
       )}
 
+      {/* Nombre de personnes — uniquement pour Bouée après avoir choisi le type */}
+      {selectedActivity?.hasSubtype && selectedSubtype && (
+        <div className="mt-4 p-4 bg-blue-50 rounded-2xl border border-blue-200">
+          <p className="font-semibold text-blue-800 mb-3">👥 Nombre de personnes :</p>
+          <div className="grid grid-cols-6 gap-2">
+            {[1, 2, 3, 4, 5, 6].map(n => (
+              <button
+                key={n}
+                onClick={() => setNumberOfPersons(n)}
+                className={`py-3 rounded-xl border-2 font-bold text-lg transition-all ${
+                  numberOfPersons === n
+                    ? 'border-blue-600 bg-blue-600 text-white shadow-md'
+                    : 'border-blue-200 bg-white text-blue-700 hover:border-blue-400 hover:bg-blue-50'
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <p className="text-blue-600 text-sm mt-3 text-center font-medium">
+            {selectedActivity.price.toLocaleString()} {CONFIG.currency} × {numberOfPersons} personne{numberOfPersons > 1 ? 's' : ''} = <strong>{totalPrice.toLocaleString()} {CONFIG.currency}</strong>
+          </p>
+        </div>
+      )}
+
       {/* Summary */}
       {selectedActivity && (
         <div className="mt-4 p-4 bg-green-50 rounded-2xl border border-green-200">
           <p className="text-green-800 font-medium">
             ✅ {selectedActivity.name}
             {selectedSubtype && ` — ${selectedSubtype}`}
+            {isBouee && selectedSubtype && ` · ${numberOfPersons} pers.`}
             {' · '}{selectedActivity.duration}
-            {' · '}<strong>{selectedActivity.price.toLocaleString()} {CONFIG.currency}</strong>
+            {' · '}<strong>{totalPrice.toLocaleString()} {CONFIG.currency}</strong>
           </p>
         </div>
       )}
 
       <button
-        onClick={() => canContinue && onNext(selectedActivity!, selectedSubtype || undefined)}
+        onClick={() => canContinue && onNext(selectedActivity!, selectedSubtype || undefined, isBouee ? numberOfPersons : undefined)}
         disabled={!canContinue}
         className="mt-6 w-full bg-blue-700 text-white py-3.5 rounded-2xl font-semibold disabled:opacity-40 hover:bg-blue-800 transition-colors text-lg"
       >
