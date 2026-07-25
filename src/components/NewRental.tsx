@@ -17,6 +17,8 @@ interface Props {
 interface FormData {
   activity: ActivityConfig | null
   activitySubtype?: string
+  numberOfPersons?: number
+  finalPrice?: number
   clientName: string
   clientFirstname: string
   clientPhone: string
@@ -63,8 +65,17 @@ export default function NewRental({ onComplete }: Props) {
   const displayStep = requiresJetSki ? step : step <= 2 ? step : step - 1
 
   // ── Handlers ──────────────────────────────────────────────
-  const handleStep1 = (activity: ActivityConfig, subtype?: string) => {
-    setFormData(prev => ({ ...prev, activity, activitySubtype: subtype }))
+  const handleStep1 = (activity: ActivityConfig, subtype?: string, numberOfPersons?: number) => {
+    const finalPrice = numberOfPersons
+      ? activity.price * numberOfPersons
+      : activity.price
+    setFormData(prev => ({
+      ...prev,
+      activity,
+      activitySubtype: subtype,
+      numberOfPersons: numberOfPersons ?? 1,
+      finalPrice,
+    }))
     setStep(2)
   }
 
@@ -101,7 +112,7 @@ export default function NewRental({ onComplete }: Props) {
         activity_subtype: formData.activitySubtype || null,
         duration: formData.activity!.duration,
         duration_minutes: formData.activity!.durationMinutes,
-        price: formData.activity!.price,
+        price: formData.finalPrice ?? formData.activity!.price,
         jet_ski_id: formData.jetSkiId || null,
         payment_method: formData.paymentMethod,
         signature: formData.signature,
@@ -232,6 +243,8 @@ export default function NewRental({ onComplete }: Props) {
             formData={{
               activity: formData.activity,
               activitySubtype: formData.activitySubtype,
+              numberOfPersons: formData.numberOfPersons,
+              totalPrice: formData.finalPrice,
               clientName: formData.clientName,
               clientFirstname: formData.clientFirstname,
               clientPhone: formData.clientPhone,
@@ -247,6 +260,8 @@ export default function NewRental({ onComplete }: Props) {
           <Step5Payment
             activity={formData.activity}
             activitySubtype={formData.activitySubtype}
+            numberOfPersons={formData.numberOfPersons}
+            totalPrice={formData.finalPrice}
             onNext={handleStep5}
             onBack={() => setStep(4)}
           />
