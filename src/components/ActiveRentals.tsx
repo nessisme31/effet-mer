@@ -60,7 +60,11 @@ function AssignJetPanel({ rental, onConfirm, onCancel }: AssignPanelProps) {
   }, [])
 
   const durationMinutes = jetItem?.activity.durationMinutes ?? rental.duration_minutes ?? 30
-  const endTime = new Date(new Date(startTime).getTime() + durationMinutes * 60000)
+
+  // Calcul de l'heure de fin (corrigé : endTime est un string ISO)
+  const endTimeDate = new Date(new Date(startTime).getTime() + durationMinutes * 60000)
+  const endTimeISO = endTimeDate.toISOString()
+  const endTimeDisplay = endTimeDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 
   const handleConfirm = async () => {
     if (!selectedJet) return
@@ -72,7 +76,7 @@ function AssignJetPanel({ rental, onConfirm, onCancel }: AssignPanelProps) {
         .update({
           jet_ski_id: selectedJet,
           start_time: start.toISOString(),
-          end_time: endTime.toISOString(),
+          end_time: endTimeISO,
           status: 'active',
         })
         .eq('id', rental.id)
@@ -145,7 +149,7 @@ function AssignJetPanel({ rental, onConfirm, onCancel }: AssignPanelProps) {
         {selectedJet && (
           <div className="bg-green-50 border border-green-200 rounded-xl p-3 mb-4 text-sm">
             <p className="text-green-800 font-medium">
-              🚤 {selectedJet} · Départ {fmt(new Date(startTime))} → Retour {fmt(endTime)}
+              🚤 {selectedJet} · Départ {fmt(startTime)} → Retour {endTimeDisplay}
             </p>
           </div>
         )}
@@ -358,8 +362,6 @@ export default function ActiveRentals({ onNewRental }: Props) {
               <div className="space-y-3">
                 {pendingJetRentals.map(rental => {
                   const cartItems = rental.cart_items ?? []
-                  const jetItem = cartItems.find(item => item.activity.requiresJetSki)
-                  const jetType = jetItem?.activity.jetType ?? 'VX'
                   const activities = cartItems.map(item => {
                     let s = item.activity.name
                     if (item.subtype) s += ` — ${item.subtype}`
@@ -387,7 +389,7 @@ export default function ActiveRentals({ onNewRental }: Props) {
                       <div className="bg-yellow-50 rounded-xl p-3 mb-3">
                         <p className="text-gray-600 text-sm font-medium">{activities}</p>
                         <p className="text-yellow-700 text-xs mt-1">
-                          Jet Ski {jetType} · Paiement : {rental.payment_method}
+                          Paiement : {rental.payment_method}
                         </p>
                       </div>
 
@@ -434,7 +436,6 @@ export default function ActiveRentals({ onNewRental }: Props) {
                   ? waiting.filter(w => w.jet_ski_id === rental.jet_ski_id)
                   : []
 
-                // Affichage des activités
                 const cartItems = rental.cart_items ?? []
                 const activityDisplay = cartItems.length > 0
                   ? cartItems.map(item => {
