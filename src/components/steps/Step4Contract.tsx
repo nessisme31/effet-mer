@@ -1,12 +1,11 @@
 import { useRef, useState } from 'react'
 import { CONFIG, CONTRACT_TEXTS, ActivityConfig } from '../../config'
-import { ContractLanguage } from '../../types'
+import { ContractLanguage, CartItem } from '../../types'
 
 interface FormData {
-  activity: ActivityConfig
-  activitySubtype?: string
-  numberOfPersons?: number
-  totalPrice?: number
+  cart: CartItem[]
+  totalPrice: number
+  discount: number
   clientName: string
   clientFirstname: string
   clientPhone: string
@@ -34,8 +33,22 @@ export default function Step4Contract({ formData, onNext, onBack }: Props) {
 
   const text = CONTRACT_TEXTS[language]
 
-  // Prix à afficher dans le contrat
-  const displayPrice = formData.totalPrice ?? formData.activity.price
+  // Calculs fiscaux
+  const totalTTC = formData.totalPrice
+  const ht = Math.round(totalTTC / 1.2)
+  const tva = totalTTC - ht
+  const originalTotal = formData.cart.reduce((sum, item) => sum + item.itemPrice, 0)
+  const hasDiscount = formData.discount > 0
+
+  // Résumé des activités
+  const cartSummary = formData.cart
+    .map(item => {
+      let s = item.activity.name
+      if (item.subtype) s += ` — ${item.subtype}`
+      if (item.numberOfPersons && item.numberOfPersons > 1) s += ` (${item.numberOfPersons} pers.)`
+      return s
+    })
+    .join(' + ')
 
   const getPos = (e: React.MouseEvent | React.TouchEvent, canvas: HTMLCanvasElement) => {
     const rect = canvas.getBoundingClientRect()
@@ -105,12 +118,23 @@ export default function Step4Contract({ formData, onNext, onBack }: Props) {
     clearSignature()
   }
 
-  const today = new Date().toLocaleDateString('fr-FR', {
+  // Date ET heure d'édition du contrat
+  const now = new Date()
+  const today = now.toLocaleDateString('fr-FR', {
     day: '2-digit', month: 'long', year: 'numeric',
   })
+  const timeNow = now.toLocaleTimeString('fr-FR', {
+    hour: '2-digit', minute: '2-digit',
+  })
+  const dateTimeString = `${today} à ${timeNow}`
 
   const clientFullName = `${formData.clientFirstname} ${formData.clientName}`
   const disclaimer = text.disclaimer.replace('{{name}}', clientFullName)
+
+  // Durée principale (la plus longue des activités)
+  const maxDuration = formData.cart.reduce((max, item) =>
+    item.activity.durationMinutes > max ? item.activity.durationMinutes : max, 0)
+  const mainDuration = formData.cart.find(item => item.activity.durationMinutes === maxDuration)?.activity.duration ?? ''
 
   return (
     <div>
@@ -160,7 +184,7 @@ export default function Step4Contract({ formData, onNext, onBack }: Props) {
           {text.title}
         </p>
 
-        {/* ── N° CONTRAT & DATE ── */}
+        {/* ── N° CONTRAT & DATE + HEURE ── */}
         <div className="grid grid-cols-2 gap-1 mb-3 bg-gray-50 rounded-xl p-2">
           <div>
             <span className="text-gray-400">{text.fields.contract} :</span>{' '}
@@ -168,7 +192,7 @@ export default function Step4Contract({ formData, onNext, onBack }: Props) {
           </div>
           <div>
             <span className="text-gray-400">{text.fields.date} :</span>{' '}
-            <strong>{today}</strong>
+            <strong>{dateTimeString}</strong>
           </div>
           <div className="col-span-2">
             <span className="text-gray-400">{text.fields.location} :</span>{' '}
@@ -202,39 +226,50 @@ export default function Step4Contract({ formData, onNext, onBack }: Props) {
           <p className="font-bold text-gray-700 text-xs mb-1.5 uppercase tracking-wide">
             {text.prestationLabel}
           </p>
-          <div className="grid grid-cols-2 gap-1">
-            <div className="col-span-2">
-              <span className="text-gray-400">{text.fields.activity} :</span>{' '}
-              <strong>
-                {formData.activity.name}
-                {formData.activitySubtype ? ` — ${formData.activitySubtype}` : ''}
-              </strong>
-            </div>
-            {/* Nombre de personnes pour bouée */}
-            {formData.numberOfPersons && formData.numberOfPersons > 1 && (
-              <div className="col-span-2">
-                <span className="text-gray-400">Nombre de personnes :</span>{' '}
-                <strong>{formData.numberOfPersons}</strong>
-              </div>
-            )}
-            {formData.jetSkiId && (
-              <div>
-                <span className="text-gray-400">{text.fields.jetSki} :</span>{' '}
-                <strong>{formData.jetSkiId}</strong>
-              </div>
-            )}
-            <div>
-              <span className="text-gray-400">{text.fields.duration} :</span>{' '}
-              <strong>{formData.activity.duration}</strong>
-            </div>
-            <div>
-              <span className="text-gray-400">{text.fields.price} :</span>{' '}
-              <strong>{displayPrice.toLocaleString()} {CONFIG.currency}</strong>
-              {formData.numberOfPersons && formData.numberOfPersons > 1 && (
-                <span className="text-gray-400 ml-1">
-                  ({formData.activity.price.toLocaleString()} × {formData.numberOfPersons} pers.)
+
+          {/* Liste des activités */}
+          <div className="space-y-1 mb-2">
+            {formData.cart.map((item, idx) => (
+              <div key={item.cartId} className="flex justify-between">
+                <span>
+                  <span className="text-gray-400">{idx + 1}.</span>{' '}
+                  <strong>
+                    {item.activity.name}
+                    {item.subtype ? ` — ${item.subtype}` : ''}
+                    {item.numberOfPersons && item.numberOfPersons > 1 ? ` (${item.numberOfPersons} pers.)` : ''}
+                  </strong>
+                  {' · '}<span className="text-gray-400">{item.activity.duration}</span>
                 </span>
-              )}
+                <strong>{item.itemPrice.toLocaleString()} {CONFIG.currency}</strong>
+              </div>
+            ))}
+          </div>
+
+          {/* Décomposition fiscale */}
+          <div className="border-t border-gray-100 pt-1.5 mt-1.5 space-y-0.5">
+            {hasDiscount && (
+              <div className="flex justify-between text-gray-400">
+                <span>Sous-total avant réduction</span>
+                <span>{originalTotal.toLocaleString()} {CONFIG.currency}</span>
+              </div>
+            )}
+            {hasDiscount && (
+              <div className="flex justify-between text-orange-500">
+                <span>Réduction</span>
+                <span>- {formData.discount.toLocaleString()} {CONFIG.currency}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-gray-500">
+              <span>Montant HT</span>
+              <span>{ht.toLocaleString()} {CONFIG.currency}</span>
+            </div>
+            <div className="flex justify-between text-gray-500">
+              <span>TVA 20%</span>
+              <span>{tva.toLocaleString()} {CONFIG.currency}</span>
+            </div>
+            <div className="flex justify-between font-bold text-blue-700 pt-1 border-t border-gray-200">
+              <span>{text.fields.price} TTC</span>
+              <span>{totalTTC.toLocaleString()} {CONFIG.currency}</span>
             </div>
           </div>
         </div>
