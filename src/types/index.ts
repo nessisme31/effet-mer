@@ -1,6 +1,8 @@
-import type { ActivityConfig } from '../config'
+import type { ActivityConfig } from './config'
 
 export type ContractLanguage = 'fr' | 'en' | 'ar'
+
+export type ItemStatus = 'waiting' | 'active' | 'returned'
 
 export interface CartItem {
   cartId: string
@@ -8,6 +10,10 @@ export interface CartItem {
   subtype?: string
   numberOfPersons?: number
   itemPrice: number
+  // Départs décalés
+  itemStatus?: ItemStatus
+  itemStartTime?: string | null
+  itemEndTime?: string | null
 }
 
 export interface Rental {
