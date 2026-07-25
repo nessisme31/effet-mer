@@ -1,5 +1,4 @@
-import type { ActivityConfig } from './config'
-
+import type { ActivityConfig } from '../config'
 export type ContractLanguage = 'fr' | 'en' | 'ar'
 
 export type ItemStatus = 'waiting' | 'active' | 'returned'
