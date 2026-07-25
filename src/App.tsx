@@ -4,7 +4,8 @@ import { Session } from '@supabase/supabase-js'
 import Login from './components/Login'
 import Layout from './components/Layout'
 
-export type Page = 'active' | 'new-rental' | 'archives' | 'clients' | 'dashboard'
+// Ajout de 'drafts' pour l'onglet "En pause"
+export type Page = 'active' | 'new-rental' | 'archives' | 'clients' | 'dashboard' | 'drafts'
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
