@@ -315,8 +315,19 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
         )}
 
         {step === 2 && (
-          <Step2Client onNext={handleStep2} onBack={() => setStep(1)} />
-        )}
+  <Step2Client
+    onNext={handleStep2}
+    onBack={() => setStep(1)}
+    onPartialChange={(partial) => setFormData(prev => ({ ...prev, ...partial }))}
+    initialData={{
+      clientName: formData.clientName,
+      clientFirstname: formData.clientFirstname,
+      clientPhone: formData.clientPhone,
+      clientIdNumber: formData.clientIdNumber,
+    }}
+  />
+)}
+
 
         {step === 3 && (
           <Step3Recap cart={formData.cart} onNext={handleStep3} onBack={() => setStep(2)} />
