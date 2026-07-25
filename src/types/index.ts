@@ -33,6 +33,7 @@ export interface Rental {
   status: 'active' | 'archived' | 'pending_jet'
   created_at: string
   cart_items: CartItem[] | null
+  returned_cart_ids: string[] | null
 }
 
 export interface WaitingEntry {
