@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { CONFIG } from '../config'
-import { Rental, WaitingEntry, CartItem } from '../types'
+import { Rental, WaitingEntry, CartItem, ItemStatus } from '../types'
 
 interface Props {
   onNewRental: () => void
@@ -14,8 +14,64 @@ const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
 const pad = (n: number) => String(n).padStart(2, '0')
-const formatForInput = (date: Date) =>
-  `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+const formatForInput = (d: Date) =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+
+// ─── Panel "Démarrer une activité" ──────────────────────────
+interface StartItemPanelProps {
+  item: CartItem
+  title: string
+  onConfirm: (startTime: string, endTime: string) => void
+  onCancel: () => void
+}
+
+function StartItemPanel({ item, title, onConfirm, onCancel }: StartItemPanelProps) {
+  const [startTime, setStartTime] = useState(formatForInput(new Date()))
+
+  const endDate = new Date(new Date(startTime).getTime() + item.activity.durationMinutes * 60000)
+  const endISO = endDate.toISOString()
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+        <h3 className="text-lg font-bold text-gray-800 mb-1">▶️ {title}</h3>
+        <p className="text-blue-700 font-semibold mb-1">
+          {item.activity.name}
+          {item.subtype ? ` — ${item.subtype}` : ''}
+          {item.numberOfPersons && item.numberOfPersons > 1 ? ` (${item.numberOfPersons}p)` : ''}
+        </p>
+        <p className="text-gray-400 text-sm mb-4">{item.activity.duration}</p>
+
+        <label className="block text-sm font-semibold text-gray-700 mb-1">🕐 Heure de départ</label>
+        <input
+          type="datetime-local"
+          value={startTime}
+          onChange={e => setStartTime(e.target.value)}
+          className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+        />
+
+        <div className="bg-green-50 border border-green-200 rounded-xl p-3 mb-4 text-sm">
+          <p className="text-green-800 font-medium">
+            {fmt(startTime)} → {fmt(endISO)}
+            <span className="text-green-500 ml-2">({item.activity.duration})</span>
+          </p>
+        </div>
+
+        <div className="flex gap-2">
+          <button onClick={onCancel} className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-200">
+            Annuler
+          </button>
+          <button
+            onClick={() => onConfirm(new Date(startTime).toISOString(), endISO)}
+            className="flex-1 bg-green-600 text-white py-2.5 rounded-xl text-sm font-bold hover:bg-green-700"
+          >
+            ▶️ Démarrer
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // ─── Panel attribution jet ski ───────────────────────────────
 interface AssignPanelProps {
@@ -45,39 +101,36 @@ function AssignJetPanel({ rental, onConfirm, onCancel }: AssignPanelProps) {
       })
   }, [])
 
-  const endTimeDate = new Date(new Date(startTime).getTime() + durationMinutes * 60000)
-  const endTimeISO = endTimeDate.toISOString()
-  const endTimeDisplay = endTimeDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  const endDate = new Date(new Date(startTime).getTime() + durationMinutes * 60000)
+  const endISO = endDate.toISOString()
 
   const handleConfirm = async () => {
     if (!selectedJet) return
     setSubmitting(true)
     try {
-      const { error } = await supabase.from('rentals').update({
+      await supabase.from('rentals').update({
         jet_ski_id: selectedJet,
         start_time: new Date(startTime).toISOString(),
-        end_time: endTimeISO,
+        end_time: endISO,
         status: 'active',
       }).eq('id', rental.id)
-      if (error) throw error
       onConfirm()
-    } catch (err) { console.error(err); alert('❌ Erreur lors de l\'attribution.') }
+    } catch (err) { console.error(err); alert('❌ Erreur') }
     setSubmitting(false)
   }
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
-        <h3 className="text-lg font-bold text-gray-800 mb-1">🚤 Attribuer un jet ski</h3>
-        <p className="text-gray-500 text-sm mb-4">{rental.client_firstname} {rental.client_name}</p>
+        <h3 className="text-lg font-bold text-gray-800 mb-4">🚤 Attribuer un jet ski</h3>
         <div className="grid grid-cols-2 gap-2 mb-4">
           {jets.map(jet => {
             const isOccupied = !!rentalMap[jet.id]
             return (
               <button key={jet.id} onClick={() => !isOccupied && setSelectedJet(jet.id)} disabled={isOccupied}
-                className={`p-3 rounded-xl border-2 text-center font-bold text-sm transition-all ${
+                className={`p-3 rounded-xl border-2 text-center font-bold text-sm ${
                   isOccupied ? 'border-red-200 bg-red-50 text-red-400 cursor-not-allowed'
-                    : selectedJet === jet.id ? 'border-green-500 bg-green-50 text-green-800 ring-2 ring-green-300'
+                    : selectedJet === jet.id ? 'border-green-500 bg-green-50 text-green-800'
                     : 'border-gray-200 bg-white text-gray-800 hover:border-green-400'
                 }`}>
                 <div className="text-2xl mb-1">🚤</div>
@@ -96,11 +149,11 @@ function AssignJetPanel({ rental, onConfirm, onCancel }: AssignPanelProps) {
         </div>
         {selectedJet && (
           <div className="bg-green-50 border border-green-200 rounded-xl p-3 mb-4 text-sm">
-            <p className="text-green-800 font-medium">🚤 {selectedJet} · Départ {fmt(startTime)} → Retour {endTimeDisplay}</p>
+            <p className="text-green-800 font-medium">🚤 {selectedJet} · {fmt(startTime)} → {fmt(endISO)}</p>
           </div>
         )}
         <div className="flex gap-2">
-          <button onClick={onCancel} className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-200">Annuler</button>
+          <button onClick={onCancel} className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl text-sm font-medium">Annuler</button>
           <button onClick={handleConfirm} disabled={!selectedJet || submitting}
             className="flex-1 bg-green-600 text-white py-2.5 rounded-xl text-sm font-bold disabled:opacity-40 hover:bg-green-700">
             {submitting ? '...' : '▶️ Démarrer'}
@@ -119,6 +172,10 @@ export default function ActiveRentals({ onNewRental }: Props) {
   const [loading, setLoading] = useState(true)
   const [returnAlert, setReturnAlert] = useState<{ jetId: string; waiters: WaitingEntry[] } | null>(null)
   const [assigningRental, setAssigningRental] = useState<Rental | null>(null)
+  // Popup "démarrer l'activité suivante ?"
+  const [startNextPanel, setStartNextPanel] = useState<{ rental: Rental; item: CartItem } | null>(null)
+  // Popup démarrage manuel d'une activité en attente
+  const [startItemPanel, setStartItemPanel] = useState<{ rental: Rental; item: CartItem } | null>(null)
 
   const fetchAll = useCallback(async () => {
     const [activeRes, pendingRes, waitingRes] = await Promise.all([
@@ -138,39 +195,70 @@ export default function ActiveRentals({ onNewRental }: Props) {
     return () => clearInterval(interval)
   }, [fetchAll])
 
-  // ── Rendre une activité spécifique du panier ───────────────
+  // ── Démarrer une activité ─────────────────────────────────
+  const handleStartItem = async (rental: Rental, item: CartItem, startTimeISO: string, endTimeISO: string) => {
+    const cart = rental.cart_items ?? []
+    const updatedCart: CartItem[] = cart.map(i =>
+      i.cartId === item.cartId
+        ? { ...i, itemStatus: 'active' as ItemStatus, itemStartTime: startTimeISO, itemEndTime: endTimeISO }
+        : i
+    )
+
+    // Recalculer end_time global
+    const activeItems = updatedCart.filter(i => i.itemStatus === 'active' && i.itemEndTime)
+    const newEnd = activeItems.reduce((max, i) => (i.itemEndTime! > max ? i.itemEndTime! : max), endTimeISO)
+
+    await supabase.from('rentals').update({
+      cart_items: updatedCart,
+      start_time: rental.start_time ?? startTimeISO,
+      end_time: newEnd,
+    }).eq('id', rental.id)
+
+    setStartNextPanel(null)
+    setStartItemPanel(null)
+    fetchAll()
+  }
+
+  // ── Rendre une activité ───────────────────────────────────
   const handleReturnItem = async (rental: Rental, cartId: string) => {
-    const currentReturned: string[] = Array.isArray(rental.returned_cart_ids)
-      ? (rental.returned_cart_ids as string[])
-      : []
-    const newReturned = [...currentReturned, cartId]
-    const allCartIds = (rental.cart_items ?? []).map(item => item.cartId)
-    const allReturned = allCartIds.length > 0 && allCartIds.every(id => newReturned.includes(id))
+    const cart: CartItem[] = rental.cart_items ?? []
+    const updatedCart: CartItem[] = cart.map(i =>
+      i.cartId === cartId
+        ? { ...i, itemStatus: 'returned' as ItemStatus }
+        : i
+    )
+
+    const allReturned = updatedCart.every(i => i.itemStatus === 'returned')
+    const waitingItems = updatedCart.filter(i => i.itemStatus === 'waiting')
+
+    const returnedIds = updatedCart.filter(i => i.itemStatus === 'returned').map(i => i.cartId)
 
     if (allReturned) {
-      // Toutes les activités rendues → archiver
-      await supabase.from('rentals').update({ status: 'archived', returned_cart_ids: newReturned }).eq('id', rental.id)
+      // Tout est rendu → archiver
+      await supabase.from('rentals').update({
+        cart_items: updatedCart,
+        status: 'archived',
+        returned_cart_ids: returnedIds,
+      }).eq('id', rental.id)
 
-      // Vérifier file d'attente pour ce jet
+      // Vérifier file d'attente jet ski
       if (rental.jet_ski_id) {
         const waiters = waiting.filter(w => w.jet_ski_id === rental.jet_ski_id)
         if (waiters.length > 0) setReturnAlert({ jetId: rental.jet_ski_id, waiters })
       }
     } else {
-      // Activité partielle rendue
-      await supabase.from('rentals').update({ returned_cart_ids: newReturned }).eq('id', rental.id)
-    }
-    fetchAll()
-  }
+      await supabase.from('rentals').update({
+        cart_items: updatedCart,
+        returned_cart_ids: returnedIds,
+      }).eq('id', rental.id)
 
-  // ── Rendu global (pour locations sans cart_items) ──────────
-  const handleReturn = async (rental: Rental) => {
-    if (!confirm(`Confirmer le retour de ${rental.client_firstname} ${rental.client_name} ?`)) return
-    await supabase.from('rentals').update({ status: 'archived' }).eq('id', rental.id)
-    if (rental.jet_ski_id) {
-      const waiters = waiting.filter(w => w.jet_ski_id === rental.jet_ski_id)
-      if (waiters.length > 0) setReturnAlert({ jetId: rental.jet_ski_id, waiters })
+      // S'il reste des activités en attente → proposer de démarrer la prochaine
+      if (waitingItems.length > 0) {
+        const updatedRental: Rental = { ...rental, cart_items: updatedCart }
+        setStartNextPanel({ rental: updatedRental, item: waitingItems[0] })
+      }
     }
+
     fetchAll()
   }
 
@@ -197,10 +285,66 @@ export default function ActiveRentals({ onNewRental }: Props) {
 
   return (
     <div>
+      {/* ── Popups ── */}
+
+      {/* Attribution jet ski */}
       {assigningRental && (
-        <AssignJetPanel rental={assigningRental} onConfirm={() => { setAssigningRental(null); fetchAll() }} onCancel={() => setAssigningRental(null)} />
+        <AssignJetPanel rental={assigningRental}
+          onConfirm={() => { setAssigningRental(null); fetchAll() }}
+          onCancel={() => setAssigningRental(null)} />
       )}
 
+      {/* Démarrer l'activité suivante (après rendu) */}
+      {startNextPanel && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+            <div className="text-center mb-4">
+              <div className="text-4xl mb-2">🔔</div>
+              <h3 className="text-lg font-bold text-blue-700">Activité suivante prête !</h3>
+              <p className="text-gray-500 text-sm mt-1">
+                {startNextPanel.rental.client_firstname} {startNextPanel.rental.client_name}
+              </p>
+            </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4">
+              <p className="text-blue-800 font-semibold">
+                {startNextPanel.item.activity.name}
+                {startNextPanel.item.subtype ? ` — ${startNextPanel.item.subtype}` : ''}
+              </p>
+              <p className="text-blue-600 text-sm">{startNextPanel.item.activity.duration}</p>
+            </div>
+            <p className="text-gray-600 text-sm text-center mb-4">Voulez-vous démarrer cette activité maintenant ?</p>
+            <div className="flex gap-2">
+              <button onClick={() => setStartNextPanel(null)}
+                className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-200">
+                Plus tard
+              </button>
+              <button
+                onClick={() => {
+                  // Passer au panel de démarrage
+                  setStartItemPanel(startNextPanel)
+                  setStartNextPanel(null)
+                }}
+                className="flex-1 bg-green-600 text-white py-2.5 rounded-xl text-sm font-bold hover:bg-green-700">
+                ▶️ Démarrer maintenant
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Panel démarrage activité */}
+      {startItemPanel && (
+        <StartItemPanel
+          item={startItemPanel.item}
+          title="Démarrer l'activité"
+          onConfirm={(startTimeISO, endTimeISO) =>
+            handleStartItem(startItemPanel.rental, startItemPanel.item, startTimeISO, endTimeISO)
+          }
+          onCancel={() => setStartItemPanel(null)}
+        />
+      )}
+
+      {/* Popup file d'attente au retour */}
       {returnAlert && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
@@ -249,9 +393,7 @@ export default function ActiveRentals({ onNewRental }: Props) {
         <div className="text-center py-20">
           <div className="text-7xl mb-4">🌊</div>
           <p className="text-xl text-gray-500 font-medium">Aucune location en cours</p>
-          <button onClick={onNewRental} className="mt-6 bg-blue-700 text-white px-8 py-3 rounded-xl font-semibold hover:bg-blue-800">
-            ➕ Démarrer une location
-          </button>
+          <button onClick={onNewRental} className="mt-6 bg-blue-700 text-white px-8 py-3 rounded-xl font-semibold hover:bg-blue-800">➕ Démarrer une location</button>
         </div>
       ) : (
         <>
@@ -276,12 +418,9 @@ export default function ActiveRentals({ onNewRental }: Props) {
                         </div>
                         <span className="bg-yellow-100 text-yellow-700 text-xs font-bold px-3 py-1 rounded-full">🟡 En attente</span>
                       </div>
-                      <div className="bg-yellow-50 rounded-xl p-3 mb-3">
-                        <p className="text-gray-600 text-sm font-medium">{activities}</p>
-                        <p className="text-yellow-700 text-xs mt-1">Paiement : {rental.payment_method}</p>
-                      </div>
+                      <p className="text-gray-600 text-sm mb-3">{activities}</p>
                       <div className="flex items-center justify-between">
-                        <span className="font-bold text-xl text-gray-800">{rental.price.toLocaleString()} {CONFIG.currency}</span>
+                        <span className="font-bold text-xl">{rental.price.toLocaleString()} {CONFIG.currency}</span>
                         <div className="flex gap-2">
                           <button onClick={() => handleCancelPendingJet(rental.id)} className="text-red-400 border border-red-200 px-3 py-2 rounded-xl text-sm hover:bg-red-50">Annuler</button>
                           <button onClick={() => setAssigningRental(rental)} className="bg-green-600 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-green-700">▶️ Attribuer & Démarrer</button>
@@ -298,12 +437,13 @@ export default function ActiveRentals({ onNewRental }: Props) {
           {rentals.length > 0 && (
             <div className="grid gap-4 mb-6">
               {rentals.map(rental => {
-                const isOverdue = rental.end_time ? new Date(rental.end_time) < new Date() : false
                 const cartItems: CartItem[] = rental.cart_items ?? []
-                const returnedIds: string[] = Array.isArray(rental.returned_cart_ids)
-                  ? (rental.returned_cart_ids as string[])
-                  : []
                 const hasCart = cartItems.length > 0
+
+                // Check si au moins un item actif est en retard
+                const isOverdue = hasCart
+                  ? cartItems.some(i => i.itemStatus === 'active' && i.itemEndTime && new Date(i.itemEndTime) < new Date())
+                  : rental.end_time ? new Date(rental.end_time) < new Date() : false
 
                 return (
                   <div key={rental.id} className={`bg-white rounded-2xl shadow-sm border-2 p-5 ${isOverdue ? 'border-red-300' : 'border-gray-100'}`}>
@@ -311,6 +451,7 @@ export default function ActiveRentals({ onNewRental }: Props) {
                       <div className="bg-red-50 text-red-600 text-xs font-semibold px-3 py-1 rounded-lg mb-3 inline-block">⚠️ Dépassement horaire</div>
                     )}
 
+                    {/* Header client */}
                     <div className="flex items-start justify-between mb-3">
                       <div>
                         <h3 className="font-bold text-gray-800 text-lg">{rental.client_firstname} {rental.client_name}</h3>
@@ -319,74 +460,86 @@ export default function ActiveRentals({ onNewRental }: Props) {
                       <div className="text-right">
                         <span className="font-bold text-xl text-gray-800">{rental.price.toLocaleString()} {CONFIG.currency}</span>
                         <p className="text-gray-400 text-xs">{rental.payment_method}</p>
-                        {rental.discount > 0 && <p className="text-green-600 text-xs">réd. -{rental.discount.toLocaleString()}</p>}
                       </div>
                     </div>
 
-                    {/* Horaires */}
-                    <div className={`rounded-xl p-3 mb-3 ${isOverdue ? 'bg-red-50' : 'bg-blue-50'}`}>
-                      <div className="flex justify-between items-center">
-                        <span className={`text-sm font-semibold ${isOverdue ? 'text-red-700' : 'text-blue-700'}`}>
-                          🕐 {rental.start_time ? fmt(rental.start_time) : '--:--'} → {rental.end_time ? fmt(rental.end_time) : '--:--'}
-                        </span>
-                        {rental.jet_ski_id && (
-                          <span className="text-blue-600 text-sm font-medium">🚤 {rental.jet_ski_id}</span>
-                        )}
-                      </div>
-                      <p className="text-gray-400 text-xs mt-0.5">📋 {rental.contract_number}</p>
-                    </div>
+                    <p className="text-gray-400 text-xs mb-3">📋 {rental.contract_number} {rental.jet_ski_id ? `· 🚤 ${rental.jet_ski_id}` : ''}</p>
 
-                    {/* ── Activités par activité ── */}
+                    {/* ── Activités par activité avec départs décalés ── */}
                     {hasCart ? (
-                      <div className="space-y-2 mb-2">
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Activités</p>
+                      <div className="space-y-2">
                         {cartItems.map(item => {
-                          const isItemReturned = returnedIds.includes(item.cartId)
+                          const status: ItemStatus = item.itemStatus ?? 'active'
+                          const itemOverdue = status === 'active' && item.itemEndTime && new Date(item.itemEndTime) < new Date()
+
                           return (
-                            <div
-                              key={item.cartId}
-                              className={`flex items-center justify-between rounded-xl px-3 py-2.5 border ${
-                                isItemReturned
-                                  ? 'bg-gray-50 border-gray-200 opacity-60'
-                                  : 'bg-white border-blue-100'
-                              }`}
-                            >
-                              <div>
-                                <p className={`font-medium text-sm ${isItemReturned ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-                                  {item.activity.name}
-                                  {item.subtype && ` — ${item.subtype}`}
-                                  {item.numberOfPersons && item.numberOfPersons > 1 && ` (${item.numberOfPersons}p)`}
-                                </p>
-                                <p className="text-gray-400 text-xs">{item.activity.duration} · {item.itemPrice.toLocaleString()} {CONFIG.currency}</p>
+                            <div key={item.cartId} className={`rounded-xl p-3 border ${
+                              status === 'returned' ? 'bg-gray-50 border-gray-200 opacity-60'
+                                : status === 'waiting' ? 'bg-orange-50 border-orange-200'
+                                : itemOverdue ? 'bg-red-50 border-red-200'
+                                : 'bg-white border-blue-100'
+                            }`}>
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <p className={`font-semibold text-sm ${status === 'returned' ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                                    {item.activity.name}
+                                    {item.subtype ? ` — ${item.subtype}` : ''}
+                                    {item.numberOfPersons && item.numberOfPersons > 1 ? ` (${item.numberOfPersons}p)` : ''}
+                                  </p>
+
+                                  {/* Horaires si actif */}
+                                  {status === 'active' && item.itemStartTime && item.itemEndTime && (
+                                    <p className={`text-xs mt-0.5 font-medium ${itemOverdue ? 'text-red-500' : 'text-blue-600'}`}>
+                                      🕐 {fmt(item.itemStartTime)} → {fmt(item.itemEndTime)}
+                                      {itemOverdue && ' ⚠️'}
+                                    </p>
+                                  )}
+
+                                  {/* En attente */}
+                                  {status === 'waiting' && (
+                                    <p className="text-orange-500 text-xs mt-0.5">⏳ En attente de départ</p>
+                                  )}
+
+                                  <p className="text-gray-400 text-xs">{item.activity.duration} · {item.itemPrice.toLocaleString()} {CONFIG.currency}</p>
+                                </div>
+
+                                {/* Boutons selon statut */}
+                                <div className="flex-shrink-0">
+                                  {status === 'returned' && (
+                                    <span className="text-green-600 text-xs font-bold bg-green-50 px-2 py-1 rounded-lg">✅ Rendu</span>
+                                  )}
+                                  {status === 'waiting' && (
+                                    <button
+                                      onClick={() => setStartItemPanel({ rental, item })}
+                                      className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
+                                    >
+                                      ▶️ Démarrer
+                                    </button>
+                                  )}
+                                  {status === 'active' && (
+                                    <button
+                                      onClick={() => handleReturnItem(rental, item.cartId)}
+                                      className={`text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                                        itemOverdue ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'
+                                      }`}
+                                    >
+                                      ✅ Rendu
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                              {isItemReturned ? (
-                                <span className="text-green-600 text-xs font-bold bg-green-50 px-2 py-1 rounded-lg">✅ Rendu</span>
-                              ) : (
-                                <button
-                                  onClick={() => handleReturnItem(rental, item.cartId)}
-                                  className="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
-                                >
-                                  ✅ Rendu
-                                </button>
-                              )}
                             </div>
                           )
                         })}
-                        {/* Message si tout est rendu */}
-                        {returnedIds.length > 0 && returnedIds.length < cartItems.length && (
-                          <p className="text-orange-600 text-xs text-center mt-1">
-                            {returnedIds.length}/{cartItems.length} activités rendues
-                          </p>
-                        )}
                       </div>
                     ) : (
-                      /* Ancienne location sans panier : bouton global */
-                      <button
-                        onClick={() => handleReturn(rental)}
-                        className="w-full bg-green-500 hover:bg-green-600 text-white py-3 rounded-xl font-bold transition-colors text-sm"
-                      >
-                        ✅ Tout rendu
-                      </button>
+                      /* Ancienne location sans cart */
+                      <div className={`rounded-xl p-3 mb-3 ${isOverdue ? 'bg-red-50' : 'bg-blue-50'}`}>
+                        <p className="text-sm font-semibold text-gray-700">{rental.activity_name}</p>
+                        <p className={`text-sm mt-1 ${isOverdue ? 'text-red-600' : 'text-blue-600'}`}>
+                          🕐 {rental.start_time ? fmt(rental.start_time) : '--:--'} → {rental.end_time ? fmt(rental.end_time) : '--:--'}
+                        </p>
+                      </div>
                     )}
                   </div>
                 )
@@ -407,9 +560,7 @@ export default function ActiveRentals({ onNewRental }: Props) {
                         <div>
                           <p className="font-bold text-orange-900">{entry.client_firstname} {entry.client_name}</p>
                           <p className="text-orange-600 text-sm">{entry.client_phone}</p>
-                          <div className="flex gap-2 mt-1">
-                            <span className="bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded-lg">🚤 Attend {entry.jet_ski_id}</span>
-                          </div>
+                          <span className="bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded-lg">🚤 Attend {entry.jet_ski_id}</span>
                         </div>
                       </div>
                       <button onClick={() => handleCancelWaiting(entry.id)} className="text-gray-400 hover:text-red-500 text-xl ml-2">✕</button>
