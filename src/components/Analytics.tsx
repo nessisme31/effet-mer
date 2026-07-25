@@ -111,11 +111,16 @@ function PieChart({ data, total, currency }: PieChartProps) {
   )
 }
 
+type Period = 'day' | 'month' | 'year'
+
 // ─── Composant principal ─────────────────────────────────────
 export default function Analytics() {
   const [rentals, setRentals] = useState<Rental[]>([])
   const [loading, setLoading] = useState(true)
+  const [period, setPeriod] = useState<Period>('day')
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10))
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7))
+  const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()))
 
   useEffect(() => {
     supabase.from('rentals').select('*').order('created_at', { ascending: false })
@@ -135,16 +140,31 @@ export default function Analytics() {
   const activeRentals = rentals.filter(r => r.status === 'active')
   const archivedRentals = rentals.filter(r => r.status === 'archived')
 
-  // Recherche par jour
-  const dayRentals = rentals.filter(r =>
-    r.created_at.startsWith(selectedDate) && r.status !== 'pending_jet'
+  // Années disponibles (pour le sélecteur)
+  const availableYears = [...new Set(rentals.map(r => r.created_at.slice(0, 4)))].sort((a, b) => b.localeCompare(a))
+  if (!availableYears.includes(selectedYear)) availableYears.unshift(selectedYear)
+
+  // Filtrage selon la période sélectionnée
+  const prefix = period === 'day' ? selectedDate : period === 'month' ? selectedMonth : selectedYear
+  const periodRentals = rentals.filter(r =>
+    r.created_at.startsWith(prefix) && r.status !== 'pending_jet'
   )
-  const dayCA = dayRentals.reduce((s, r) => s + r.price, 0)
-  const dayActivityMap = dayRentals.reduce((acc, r) => {
+  const periodCA = periodRentals.reduce((s, r) => s + r.price, 0)
+  const periodActivityMap = periodRentals.reduce((acc, r) => {
     acc[r.activity_name] = (acc[r.activity_name] || 0) + r.price
     return acc
   }, {} as Record<string, number>)
-  const dayTopActivity = Object.entries(dayActivityMap).sort((a, b) => b[1] - a[1])[0]
+  const periodTopActivity = Object.entries(periodActivityMap).sort((a, b) => b[1] - a[1])[0]
+
+  // Labels de période
+  const periodLabel: Record<Period, string> = {
+    day: new Date(selectedDate + 'T12:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }),
+    month: new Date(selectedMonth + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }),
+    year: selectedYear,
+  }
+
+  // Nom court pour les KPIs
+  const periodShort: Record<Period, string> = { day: 'CE JOUR', month: 'CE MOIS', year: 'CETTE ANNÉE' }
 
   // CA global
   const caToday = todayRentals.reduce((s, r) => s + r.price, 0)
@@ -227,55 +247,107 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* ── 🔍 Recherche par jour ── */}
+      {/* ── 🔍 Récapitulatif par période ── */}
       <div className="bg-white rounded-2xl border p-5 mb-4 shadow-sm">
-        <h3 className="font-bold text-gray-800 mb-4">🔍 Récapitulatif par jour</h3>
-        <input
-          type="date"
-          value={selectedDate}
-          onChange={e => setSelectedDate(e.target.value)}
-          className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none mb-4"
-        />
+        <h3 className="font-bold text-gray-800 mb-4">🔍 Récapitulatif par période</h3>
 
-        {dayRentals.length === 0 ? (
+        {/* Sélecteur Jour / Mois / Année */}
+        <div className="flex gap-2 mb-4 bg-gray-100 rounded-xl p-1">
+          {(['day', 'month', 'year'] as Period[]).map(p => (
+            <button
+              key={p}
+              onClick={() => setPeriod(p)}
+              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+                period === p
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {p === 'day' ? '📅 Jour' : p === 'month' ? '📆 Mois' : '📊 Année'}
+            </button>
+          ))}
+        </div>
+
+        {/* Sélecteur de date selon la période */}
+        {period === 'day' && (
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={e => setSelectedDate(e.target.value)}
+            className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none mb-4"
+          />
+        )}
+        {period === 'month' && (
+          <input
+            type="month"
+            value={selectedMonth}
+            onChange={e => setSelectedMonth(e.target.value)}
+            className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none mb-4"
+          />
+        )}
+        {period === 'year' && (
+          <select
+            value={selectedYear}
+            onChange={e => setSelectedYear(e.target.value)}
+            className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none mb-4 bg-white"
+          >
+            {availableYears.map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        )}
+
+        {/* Titre de la période */}
+        <p className="text-center text-gray-500 text-sm font-medium mb-4">
+          📅 {periodLabel[period]}
+        </p>
+
+        {periodRentals.length === 0 ? (
           <div className="text-center py-6 text-gray-400">
             <p className="text-3xl mb-2">📅</p>
-            <p className="text-sm">Aucune location ce jour-là</p>
+            <p className="text-sm">Aucune location sur cette période</p>
           </div>
         ) : (
           <>
-            {/* KPIs du jour */}
+            {/* KPIs de la période */}
             <div className="grid grid-cols-3 gap-3 mb-4">
               <div className="bg-blue-50 rounded-xl p-3 text-center">
-                <p className="text-blue-500 text-xs font-medium mb-1">CA DU JOUR</p>
-                <p className="text-xl font-bold text-blue-700">{dayCA.toLocaleString()}</p>
+                <p className="text-blue-500 text-xs font-medium mb-1">CA {periodShort[period]}</p>
+                <p className="text-xl font-bold text-blue-700">{periodCA.toLocaleString()}</p>
                 <p className="text-blue-400 text-xs">{CONFIG.currency}</p>
               </div>
               <div className="bg-green-50 rounded-xl p-3 text-center">
                 <p className="text-green-500 text-xs font-medium mb-1">RÉSERVATIONS</p>
-                <p className="text-xl font-bold text-green-700">{dayRentals.length}</p>
+                <p className="text-xl font-bold text-green-700">{periodRentals.length}</p>
                 <p className="text-green-400 text-xs">location(s)</p>
               </div>
               <div className="bg-orange-50 rounded-xl p-3 text-center">
                 <p className="text-orange-500 text-xs font-medium mb-1">ACTIVITÉ ⭐</p>
                 <p className="text-sm font-bold text-orange-700 leading-tight mt-0.5">
-                  {dayTopActivity ? dayTopActivity[0] : '—'}
+                  {periodTopActivity ? periodTopActivity[0] : '—'}
                 </p>
-                {dayTopActivity && (
-                  <p className="text-orange-400 text-xs">{dayTopActivity[1].toLocaleString()} {CONFIG.currency}</p>
+                {periodTopActivity && (
+                  <p className="text-orange-400 text-xs">{periodTopActivity[1].toLocaleString()} {CONFIG.currency}</p>
                 )}
               </div>
             </div>
 
-            {/* Liste des locations du jour */}
-            <div className="space-y-2 max-h-60 overflow-y-auto">
-              {dayRentals.map(rental => (
+            {/* Liste des locations */}
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {periodRentals.map(rental => (
                 <div key={rental.id} className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2">
                   <div>
                     <p className="font-medium text-gray-800 text-sm">
                       {rental.client_firstname} {rental.client_name}
                     </p>
-                    <p className="text-gray-500 text-xs">{rental.activity_name}</p>
+                    <p className="text-gray-500 text-xs">
+                      {rental.activity_name}
+                      {period !== 'day' && (
+                        <span className="ml-2 text-gray-400">
+                          · {new Date(rental.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}
+                        </span>
+                      )}
+                    </p>
                   </div>
                   <div className="text-right">
                     <p className="font-bold text-blue-700 text-sm">{rental.price.toLocaleString()} {CONFIG.currency}</p>
