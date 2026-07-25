@@ -7,6 +7,7 @@ import Step2Client from './steps/Step2Client'
 import Step3Recap from './steps/Step3Recap'
 import Step4Contract from './steps/Step4Contract'
 import Step5Payment from './steps/Step5Payment'
+import Step3JetSki from './steps/Step3JetSki'
 import Step6Schedule from './steps/Step6Schedule'
 
 interface Props {
@@ -29,6 +30,7 @@ interface FormData {
   contractLanguage: ContractLanguage
   contractNumber: string
   paymentMethod: string
+  jetSkiId?: string
 }
 
 const generateContractNumber = () => {
@@ -52,25 +54,37 @@ const DEFAULT_FORM: FormData = {
   paymentMethod: '',
 }
 
+type FlowState = 'form' | 'waiting-success'
+
 export default function NewRental({ onComplete, onPause, initialFormData, initialStep, draftId }: Props) {
   const [step, setStep] = useState(initialStep ?? 1)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSavingDraft, setIsSavingDraft] = useState(false)
+  const [flowState, setFlowState] = useState<FlowState>('form')
+  const [waitingJetId, setWaitingJetId] = useState('')
   const [formData, setFormData] = useState<FormData>({ ...DEFAULT_FORM, ...initialFormData })
 
   // Le panier contient-il un jet ski ?
   const hasJetSki = formData.cart.some(item => item.activity.requiresJetSki)
+  const jetItem = formData.cart.find(item => item.activity.requiresJetSki)
+  const jetType = jetItem?.activity.jetType ?? 'VX'
 
-  // Étapes : avec ou sans jet ski
+  // Étapes selon le contenu du panier
+  // Avec jet ski : Panier → Client → Récap → Contrat → Paiement → Jet Ski → Horaires (7)
   // Sans jet ski : Panier → Client → Récap → Contrat → Paiement → Horaires (6)
-  // Avec jet ski  : Panier → Client → Récap → Contrat → Paiement → (location pending_jet, pas d'horaires)
   const stepLabels = hasJetSki
-    ? ['Panier', 'Client', 'Récap', 'Contrat', 'Paiement']
+    ? ['Panier', 'Client', 'Récap', 'Contrat', 'Paiement', 'Jet Ski', 'Horaires']
     : ['Panier', 'Client', 'Récap', 'Contrat', 'Paiement', 'Horaires']
 
-  const displayStep = step
+  // Activité principale pour l'écran horaires (jet ski si présent, sinon la plus longue)
+  const mainActivity = hasJetSki
+    ? jetItem!.activity
+    : formData.cart.reduce((max, item) =>
+        item.activity.durationMinutes > max.activity.durationMinutes ? item : max,
+        formData.cart[0]
+      )?.activity ?? null
 
-  // ─── Résumé des activités ──────────────────────────────────
+  // Résumé des activités pour Supabase
   const cartSummary = formData.cart
     .map(item => {
       let s = item.activity.name
@@ -79,6 +93,38 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
       return s
     })
     .join(' + ')
+
+  // ─── Sauvegarde finale en base ─────────────────────────────
+  const saveRental = async (startTime: string, endTime: string, jetSkiId: string | null, status = 'active') => {
+    const ht = Math.round(formData.finalTTC / 1.2)
+    const { error } = await supabase.from('rentals').insert({
+      client_name: formData.clientName.toUpperCase(),
+      client_firstname: formData.clientFirstname,
+      client_phone: formData.clientPhone,
+      client_id_number: formData.clientIdNumber.toUpperCase(),
+      activity_name: cartSummary || formData.cart[0]?.activity.name,
+      activity_id: formData.cart[0]?.activity.id ?? null,
+      cart_items: formData.cart,
+      duration: mainActivity?.duration ?? '',
+      duration_minutes: mainActivity?.durationMinutes ?? 0,
+      price: formData.finalTTC,
+      discount: formData.discount,
+      price_ht: ht,
+      jet_ski_id: jetSkiId,
+      payment_method: formData.paymentMethod,
+      signature: formData.signature,
+      contract_number: formData.contractNumber,
+      start_time: startTime ? new Date(startTime).toISOString() : null,
+      end_time: endTime ? new Date(endTime).toISOString() : null,
+      status,
+    })
+    if (error) throw error
+
+    // Supprimer le brouillon si existant
+    if (draftId) {
+      await supabase.from('draft_rentals').delete().eq('id', draftId)
+    }
+  }
 
   // ─── Handlers ─────────────────────────────────────────────
   const handleStep1 = (cart: CartItem[]) => {
@@ -101,91 +147,52 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
     setStep(5)
   }
 
-  const handleStep5 = async (paymentMethod: string) => {
+  const handleStep5 = (paymentMethod: string) => {
     setFormData(prev => ({ ...prev, paymentMethod }))
-
-    if (hasJetSki) {
-      // Sauvegarder comme "pending_jet" (jet ski à attribuer plus tard)
-      setIsSubmitting(true)
-      try {
-        const originalTotal = formData.cart.reduce((sum, item) => sum + item.itemPrice, 0)
-        const ht = Math.round(formData.finalTTC / 1.2)
-        const jetItem = formData.cart.find(item => item.activity.requiresJetSki)
-
-        const { error } = await supabase.from('rentals').insert({
-          client_name: formData.clientName.toUpperCase(),
-          client_firstname: formData.clientFirstname,
-          client_phone: formData.clientPhone,
-          client_id_number: formData.clientIdNumber.toUpperCase(),
-          activity_name: cartSummary || formData.cart[0]?.activity.name,
-          activity_id: formData.cart[0]?.activity.id ?? null,
-          cart_items: formData.cart,
-          duration: jetItem?.activity.duration ?? formData.cart[0]?.activity.duration,
-          duration_minutes: jetItem?.activity.durationMinutes ?? formData.cart[0]?.activity.durationMinutes ?? 0,
-          price: formData.finalTTC,
-          discount: formData.discount,
-          price_ht: ht,
-          jet_ski_id: null,
-          payment_method: paymentMethod,
-          signature: formData.signature,
-          contract_number: formData.contractNumber,
-          start_time: null,
-          end_time: null,
-          status: 'pending_jet',
-        })
-        if (error) throw error
-
-        // Supprimer le brouillon si on en avait un
-        if (draftId) {
-          await supabase.from('draft_rentals').delete().eq('id', draftId)
-        }
-
-        onComplete()
-      } catch (err) {
-        console.error(err)
-        alert('❌ Erreur lors de l\'enregistrement.')
-      }
-      setIsSubmitting(false)
-    } else {
-      // Pas de jet ski → passer aux horaires
-      setStep(6)
-    }
+    // Après le paiement → Jet ski (si présent) sinon Horaires
+    setStep(6)
   }
 
-  const handleStep6 = async (startTime: string, endTime: string) => {
+  // Jet ski sélectionné → aller aux horaires
+  const handleStep6JetSki = (jetSkiId: string) => {
+    setFormData(prev => ({ ...prev, jetSkiId }))
+    setStep(7)
+  }
+
+  // Jet ski occupé → file d'attente
+  const handleAddToWaitingList = async (jetSkiId: string) => {
     setIsSubmitting(true)
     try {
-      const ht = Math.round(formData.finalTTC / 1.2)
+      // Sauvegarder la location sans jet ski (pending_jet)
+      await saveRental('', '', null, 'pending_jet')
 
-      const { error } = await supabase.from('rentals').insert({
+      // Ajouter à la file d'attente
+      await supabase.from('waiting_list').insert({
         client_name: formData.clientName.toUpperCase(),
         client_firstname: formData.clientFirstname,
         client_phone: formData.clientPhone,
         client_id_number: formData.clientIdNumber.toUpperCase(),
-        activity_name: cartSummary || formData.cart[0]?.activity.name,
-        activity_id: formData.cart[0]?.activity.id ?? null,
-        cart_items: formData.cart,
-        duration: formData.cart[0]?.activity.duration,
-        duration_minutes: formData.cart.reduce((max, item) =>
-          item.activity.durationMinutes > max ? item.activity.durationMinutes : max, 0),
-        price: formData.finalTTC,
-        discount: formData.discount,
-        price_ht: ht,
-        jet_ski_id: null,
-        payment_method: formData.paymentMethod,
-        signature: formData.signature,
-        contract_number: formData.contractNumber,
-        start_time: new Date(startTime).toISOString(),
-        end_time: new Date(endTime).toISOString(),
-        status: 'active',
+        activity_id: jetItem?.activity.id ?? formData.cart[0]?.activity.id ?? '',
+        activity_name: cartSummary,
+        activity_subtype: null,
+        jet_ski_id: jetSkiId,
+        status: 'waiting',
       })
-      if (error) throw error
 
-      // Supprimer le brouillon
-      if (draftId) {
-        await supabase.from('draft_rentals').delete().eq('id', draftId)
-      }
+      setWaitingJetId(jetSkiId)
+      setFlowState('waiting-success')
+    } catch (err) {
+      console.error(err)
+      alert('❌ Erreur lors de l\'ajout en file d\'attente.')
+    }
+    setIsSubmitting(false)
+  }
 
+  // Horaires sans jet ski (étape 6)
+  const handleStep6Schedule = async (startTime: string, endTime: string) => {
+    setIsSubmitting(true)
+    try {
+      await saveRental(startTime, endTime, null, 'active')
       onComplete()
     } catch (err) {
       console.error(err)
@@ -194,7 +201,20 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
     setIsSubmitting(false)
   }
 
-  // ─── Mettre en pause (sauvegarder le brouillon) ─────────────
+  // Horaires avec jet ski (étape 7)
+  const handleStep7Schedule = async (startTime: string, endTime: string) => {
+    setIsSubmitting(true)
+    try {
+      await saveRental(startTime, endTime, formData.jetSkiId ?? null, 'active')
+      onComplete()
+    } catch (err) {
+      console.error(err)
+      alert('❌ Erreur lors de l\'enregistrement.')
+    }
+    setIsSubmitting(false)
+  }
+
+  // ─── Mettre en pause ──────────────────────────────────────
   const handlePause = async () => {
     setIsSavingDraft(true)
     try {
@@ -206,15 +226,11 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
         activities_summary: cartSummary || 'Activités à définir',
         status: 'draft',
       }
-
       if (draftId) {
-        // Mettre à jour le brouillon existant
         await supabase.from('draft_rentals').update(draftData).eq('id', draftId)
       } else {
-        // Créer un nouveau brouillon
         await supabase.from('draft_rentals').insert(draftData)
       }
-
       onPause()
     } catch (err) {
       console.error(err)
@@ -223,13 +239,33 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
     setIsSavingDraft(false)
   }
 
-  // ─── Activité principale pour Step6 ───────────────────────
-  const mainActivity = formData.cart.length > 0
-    ? formData.cart.reduce((main, item) =>
-        item.activity.durationMinutes > main.activity.durationMinutes ? item : main,
-        formData.cart[0]
-      ).activity
-    : null
+  // ─── Écran file d'attente ──────────────────────────────────
+  if (flowState === 'waiting-success') {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <div className="bg-white rounded-2xl shadow-sm border p-8 text-center">
+          <div className="text-6xl mb-4">⏳</div>
+          <h2 className="text-2xl font-bold text-orange-700 mb-2">Ajouté en file d'attente !</h2>
+          <p className="text-gray-600 mb-1">
+            <strong>{formData.clientFirstname} {formData.clientName}</strong>
+          </p>
+          <p className="text-gray-500 text-sm mb-4">{formData.clientPhone}</p>
+          <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-6">
+            <p className="text-orange-800 font-semibold">🚤 En attente du jet {waitingJetId}</p>
+            <p className="text-orange-600 text-sm mt-1">
+              Une alerte apparaîtra automatiquement dès que ce jet sera rendu.
+            </p>
+          </div>
+          <button
+            onClick={onComplete}
+            className="w-full bg-blue-700 text-white py-3.5 rounded-2xl font-bold hover:bg-blue-800 transition-colors"
+          >
+            ✅ Retour aux locations actives
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -240,8 +276,8 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
           <div className="flex justify-between items-center mb-3">
             <div className="flex justify-between flex-1">
               {stepLabels.map((label, i) => {
-                const done = displayStep > i + 1
-                const active = displayStep === i + 1
+                const done = step > i + 1
+                const active = step === i + 1
                 return (
                   <div key={label} className="flex flex-col items-center flex-1">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
@@ -274,32 +310,23 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
           <div className="h-1.5 bg-gray-200 rounded-full mx-4">
             <div
               className="h-1.5 bg-blue-600 rounded-full transition-all duration-300"
-              style={{ width: `${((displayStep - 1) / (stepLabels.length - 1)) * 100}%` }}
+              style={{ width: `${((step - 1) / (stepLabels.length - 1)) * 100}%` }}
             />
           </div>
         </div>
 
         {/* ─── Étapes ─────────────────────────────────────── */}
+
         {step === 1 && (
-          <Step1Activity
-            initialCart={formData.cart}
-            onNext={handleStep1}
-          />
+          <Step1Activity initialCart={formData.cart} onNext={handleStep1} />
         )}
 
         {step === 2 && (
-          <Step2Client
-            onNext={handleStep2}
-            onBack={() => setStep(1)}
-          />
+          <Step2Client onNext={handleStep2} onBack={() => setStep(1)} />
         )}
 
         {step === 3 && (
-          <Step3Recap
-            cart={formData.cart}
-            onNext={handleStep3}
-            onBack={() => setStep(2)}
-          />
+          <Step3Recap cart={formData.cart} onNext={handleStep3} onBack={() => setStep(2)} />
         )}
 
         {step === 4 && (
@@ -329,21 +356,37 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
           />
         )}
 
+        {/* Étape 6 : Jet Ski (si panier contient jet ski) OU Horaires (sinon) */}
+        {step === 6 && hasJetSki && (
+          <Step3JetSki
+            jetType={jetType}
+            clientFirstname={formData.clientFirstname}
+            clientName={formData.clientName}
+            onNext={handleStep6JetSki}
+            onBack={() => setStep(5)}
+            onAddToWaitingList={handleAddToWaitingList}
+          />
+        )}
+
         {step === 6 && !hasJetSki && mainActivity && (
           <Step6Schedule
             activity={mainActivity}
-            onComplete={handleStep6}
+            onComplete={handleStep6Schedule}
             onBack={() => setStep(5)}
             isSubmitting={isSubmitting}
           />
         )}
 
-        {/* Message de chargement si en attente */}
-        {isSubmitting && (
-          <div className="text-center py-4 text-gray-500 text-sm">
-            ⏳ Enregistrement en cours...
-          </div>
+        {/* Étape 7 : Horaires (uniquement si jet ski dans le panier) */}
+        {step === 7 && hasJetSki && mainActivity && (
+          <Step6Schedule
+            activity={mainActivity}
+            onComplete={handleStep7Schedule}
+            onBack={() => setStep(6)}
+            isSubmitting={isSubmitting}
+          />
         )}
+
       </div>
     </div>
   )
