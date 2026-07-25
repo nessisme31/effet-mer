@@ -168,7 +168,7 @@ export const openContractPDF = (rental: Rental): void => {
       </div>
       <div class="field">
         <div class="lbl">Horaires</div>
-        <div class="val">${fmtTime(rental.start_time)} → ${fmtTime(rental.end_time)}</div>
+        <div class="val">${rental.start_time ? fmtTime(rental.start_time) : '--'} → ${rental.end_time ? fmtTime(rental.end_time) : '--'}</div>
       </div>
       <div class="field">
         <div class="lbl">Tarif</div>
