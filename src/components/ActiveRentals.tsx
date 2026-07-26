@@ -5,7 +5,6 @@ import { Rental, WaitingEntry } from '../types'
 
 interface Props {
   onNewRental: () => void
-  onEditRental: (id: string) => void   // ← NOUVEAU
 }
 
 const fmt = (iso: string) =>
@@ -14,7 +13,7 @@ const fmt = (iso: string) =>
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
-export default function ActiveRentals({ onNewRental, onEditRental }: Props) {
+export default function ActiveRentals({ onNewRental }: Props) {
   const [rentals, setRentals] = useState<Rental[]>([])
   const [waiting, setWaiting] = useState<WaitingEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -51,12 +50,9 @@ export default function ActiveRentals({ onNewRental, onEditRental }: Props) {
     await supabase.from('rentals').update({ status: 'archived' }).eq('id', rental.id)
 
     if (rental.jet_ski_id) {
-      // Support multi-jets
-      const jetIds = rental.jet_ski_id.split(',').map(s => s.trim())
-      const waitersForAnyJet = waiting.filter(w => jetIds.includes(w.jet_ski_id))
-      if (waitersForAnyJet.length > 0) {
-        // Prend le 1er jet pour l'alerte
-        setReturnAlert({ jetId: jetIds[0], waiters: waitersForAnyJet })
+      const waitersForJet = waiting.filter(w => w.jet_ski_id === rental.jet_ski_id)
+      if (waitersForJet.length > 0) {
+        setReturnAlert({ jetId: rental.jet_ski_id, waiters: waitersForJet })
       }
     }
 
@@ -72,26 +68,6 @@ export default function ActiveRentals({ onNewRental, onEditRental }: Props) {
   const handleConvertWaiting = async (entry: WaitingEntry) => {
     await supabase.from('waiting_list').update({ status: 'converted' }).eq('id', entry.id)
     setReturnAlert(null)
-    onNewRental()
-  }
-
-  // ── Démarrer maintenant depuis la liste d'attente ────────────
-  // Vérifie si le jet attendu est libre (non présent dans les locations actives)
-  const isJetFree = (jetId: string): boolean => {
-    return !rentals.some(r => {
-      if (!r.jet_ski_id) return false
-      const ids = r.jet_ski_id.split(',').map(s => s.trim())
-      return ids.includes(jetId)
-    })
-  }
-
-  const handleStartFromWaiting = async (entry: WaitingEntry) => {
-    if (!isJetFree(entry.jet_ski_id)) {
-      alert(`⛔ Le jet ${entry.jet_ski_id} est encore sorti. Il doit être rendu avant de démarrer.`)
-      return
-    }
-    await supabase.from('waiting_list').update({ status: 'converted' }).eq('id', entry.id)
-    fetchAll()
     onNewRental()
   }
 
@@ -125,7 +101,9 @@ export default function ActiveRentals({ onNewRental, onEditRental }: Props) {
                     </p>
                   </div>
                   <p className="text-orange-600 text-sm">{waiter.client_phone}</p>
-                  <p className="text-orange-500 text-xs">{waiter.activity_name} · {waiter.activity_subtype || ''}</p>
+                  <p className="text-orange-500 text-xs">
+                    {waiter.activity_name} · {waiter.activity_subtype || ''}
+                  </p>
                   {i === 0 && (
                     <button
                       onClick={() => handleConvertWaiting(waiter)}
@@ -167,7 +145,7 @@ export default function ActiveRentals({ onNewRental, onEditRental }: Props) {
         </button>
       </div>
 
-      {/* ── Locations actives ──────────────────────────────── */}
+      {/* ── Empty state ────────────────────────────────────── */}
       {rentals.length === 0 && waiting.length === 0 ? (
         <div className="text-center py-20">
           <div className="text-7xl mb-4">🌊</div>
@@ -182,14 +160,12 @@ export default function ActiveRentals({ onNewRental, onEditRental }: Props) {
         </div>
       ) : (
         <>
+          {/* ── Locations actives ──────────────────────────── */}
           <div className="grid gap-4 mb-6">
             {rentals.map(rental => {
-              const isOverdue = new Date(rental.end_time ?? '') < new Date()
-              const jetIds = rental.jet_ski_id
-                ? rental.jet_ski_id.split(',').map(s => s.trim())
-                : []
-              const waitersForJet = jetIds.length > 0
-                ? waiting.filter(w => jetIds.includes(w.jet_ski_id ?? ''))
+              const isOverdue = rental.end_time ? new Date(rental.end_time) < new Date() : false
+              const waitersForJet = rental.jet_ski_id
+                ? waiting.filter(w => w.jet_ski_id === rental.jet_ski_id)
                 : []
 
               return (
@@ -219,21 +195,11 @@ export default function ActiveRentals({ onNewRental, onEditRental }: Props) {
                       </h3>
                       <p className="text-gray-500 text-sm">{rental.client_phone}</p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {/* Bouton Modifier */}
-                      <button
-                        onClick={() => onEditRental(rental.id)}
-                        className="bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors"
-                        title="Modifier cette location"
-                      >
-                        ✏️ Modifier
-                      </button>
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                        isOverdue ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
-                      }`}>
-                        {isOverdue ? '🔴 En retard' : '🟡 En cours'}
-                      </span>
-                    </div>
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                      isOverdue ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
+                    }`}>
+                      {isOverdue ? '🔴 En retard' : '🟡 En cours'}
+                    </span>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 mb-4">
@@ -244,9 +210,7 @@ export default function ActiveRentals({ onNewRental, onEditRental }: Props) {
                         {rental.activity_subtype ? ` — ${rental.activity_subtype}` : ''}
                       </p>
                       {rental.jet_ski_id && (
-                        <p className="text-blue-600 text-sm mt-1">
-                          🚤 {rental.jet_ski_id.split(',').join(' + ')}
-                        </p>
+                        <p className="text-blue-600 text-sm mt-1">🚤 {rental.jet_ski_id}</p>
                       )}
                       <p className="text-blue-500 text-xs">{rental.duration}</p>
                     </div>
@@ -256,10 +220,10 @@ export default function ActiveRentals({ onNewRental, onEditRental }: Props) {
                         HORAIRES
                       </p>
                       <p className={`font-bold ${isOverdue ? 'text-red-800' : 'text-green-800'}`}>
-                        {fmt(rental.start_time ?? '')} → {fmt(rental.end_time ?? '')}
+                        {rental.start_time ? fmt(rental.start_time) : '--'} → {rental.end_time ? fmt(rental.end_time) : '--'}
                       </p>
                       <p className={`text-xs mt-1 ${isOverdue ? 'text-red-600' : 'text-green-600'}`}>
-                        Retour à {fmt(rental.end_time ?? '')}
+                        Retour à {rental.end_time ? fmt(rental.end_time) : '--'}
                       </p>
                     </div>
                   </div>
@@ -291,70 +255,42 @@ export default function ActiveRentals({ onNewRental, onEditRental }: Props) {
                 <span>⏳</span> File d'attente ({waiting.length})
               </h3>
               <div className="space-y-3">
-                {waiting.map((entry, i) => {
-                  const jetFree = isJetFree(entry.jet_ski_id)
-
-                  return (
-                    <div key={entry.id} className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="bg-orange-500 text-white font-bold w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0">
-                            {i + 1}
-                          </div>
-                          <div>
-                            <p className="font-bold text-orange-900">
-                              {entry.client_firstname} {entry.client_name}
-                            </p>
-                            <p className="text-orange-600 text-sm">{entry.client_phone}</p>
-                            <div className="flex gap-2 mt-1 flex-wrap">
-                              <span className={`text-xs px-2 py-0.5 rounded-lg font-medium ${
-                                jetFree
-                                  ? 'bg-green-100 text-green-700'
-                                  : 'bg-orange-100 text-orange-700'
-                              }`}>
-                                {jetFree ? '🟢' : '🔴'} {entry.jet_ski_id}
-                              </span>
-                              <span className="bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded-lg">
-                                {entry.activity_name}
-                                {entry.activity_subtype ? ` — ${entry.activity_subtype}` : ''}
-                              </span>
-                              <span className="bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded-lg">
-                                Ajouté à {fmt(entry.created_at)}
-                              </span>
-                            </div>
-
-                            {/* ── Bouton "Démarrer maintenant" ── */}
-                            <div className="mt-2">
-                              <button
-                                onClick={() => handleStartFromWaiting(entry)}
-                                disabled={!jetFree}
-                                title={
-                                  jetFree
-                                    ? 'Le jet est libre, démarrer la location'
-                                    : `Le jet ${entry.jet_ski_id} est encore sorti`
-                                }
-                                className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-colors ${
-                                  jetFree
-                                    ? 'bg-green-500 hover:bg-green-600 text-white shadow-sm'
-                                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                                }`}
-                              >
-                                {jetFree ? '🚀 Démarrer maintenant' : '⏸️ Jet encore sorti'}
-                              </button>
-                            </div>
+                {waiting.map((entry, i) => (
+                  <div key={entry.id} className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="bg-orange-500 text-white font-bold w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0">
+                          {i + 1}
+                        </div>
+                        <div>
+                          <p className="font-bold text-orange-900">
+                            {entry.client_firstname} {entry.client_name}
+                          </p>
+                          <p className="text-orange-600 text-sm">{entry.client_phone}</p>
+                          <div className="flex gap-2 mt-1 flex-wrap">
+                            <span className="bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded-lg">
+                              🚤 {entry.jet_ski_id}
+                            </span>
+                            <span className="bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded-lg">
+                              {entry.activity_name}
+                              {entry.activity_subtype ? ` — ${entry.activity_subtype}` : ''}
+                            </span>
+                            <span className="bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded-lg">
+                              Ajouté à {fmt(entry.created_at)}
+                            </span>
                           </div>
                         </div>
-                        <button
-                          onClick={() => handleCancelWaiting(entry.id)}
-                          className="text-gray-400 hover:text-red-500 text-xl ml-2 flex-shrink-0"
-                          title="Annuler"
-                        >
-                          ✕
-                        </button>
                       </div>
+                      <button
+                        onClick={() => handleCancelWaiting(entry.id)}
+                        className="text-gray-400 hover:text-red-500 text-xl ml-2 flex-shrink-0"
+                        title="Annuler"
+                      >
+                        ✕
+                      </button>
                     </div>
-                  )
-                })}
+                  </div>
+                ))}
               </div>
             </div>
           )}
