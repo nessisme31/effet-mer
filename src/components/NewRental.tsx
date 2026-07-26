@@ -365,8 +365,8 @@ export default function NewRental({ onComplete, rentalId }: Props) {
         )}
         {step === 5 && formData.activity && (
           <Step5Payment
-            activity={formData.activity}
-            activitySubtype={formData.activitySubtype}
+            price={formData.activity.price * (formData.jetSkiQuantity > 1 ? formData.jetSkiQuantity : 1)}
+            activityLabel={`${formData.activity.name}${formData.activitySubtype ? ` — ${formData.activitySubtype}` : ''}${formData.jetSkiQuantity > 1 ? ` × ${formData.jetSkiQuantity}` : ''} · ${formData.activity.duration}`}
             onNext={handleStep5}
             onBack={() => setStep(4)}
           />
