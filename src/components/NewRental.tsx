@@ -7,7 +7,7 @@ import Step2Client from './steps/Step2Client'
 import Step3Recap from './steps/Step3Recap'
 import Step4Contract from './steps/Step4Contract'
 import Step5Payment from './steps/Step5Payment'
-import Step3JetSki from './steps/Step3JetSki'
+import StepJetSkiAssign, { JetSlot } from './steps/StepJetSkiAssign'
 import StepScheduleMulti from './steps/StepScheduleMulti'
 
 interface Props {
@@ -31,7 +31,7 @@ interface FormData {
   contractLanguage: ContractLanguage
   contractNumber: string
   paymentMethod: string
-  jetSkiId?: string
+  jetSkiIds: string[]   // un ID par slot jet ski, dans l'ordre
 }
 
 const generateContractNumber = () => {
@@ -48,6 +48,7 @@ const DEFAULT_FORM: FormData = {
   clientPhone: '',
   clientIdNumber: '',
   clientOrigin: '',
+  jetSkiIds: [],
   discount: 0,
   finalTTC: 0,
   signature: '',
@@ -111,7 +112,7 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
       price: formData.finalTTC,
       discount: formData.discount,
       price_ht: ht,
-      jet_ski_id: formData.jetSkiId ?? null,
+      jet_ski_id: formData.jetSkiIds.length > 0 ? formData.jetSkiIds.join(',') : null,
       payment_method: formData.paymentMethod,
       signature: formData.signature,
       contract_number: contractNumber,
@@ -163,10 +164,22 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
     setStep(6)
   }
 
-  const handleStep6JetSki = (jetSkiId: string) => {
-    setFormData(prev => ({ ...prev, jetSkiId }))
+  // Réception des jets assignés (un ID par slot)
+  const handleStep6JetSki = (jetSkiIds: string[]) => {
+    setFormData(prev => ({ ...prev, jetSkiIds }))
     setStep(7)
   }
+
+  // Génère la liste des slots jet ski depuis le panier (un slot par jet réservé)
+  const jetSlots: JetSlot[] = formData.cart
+    .filter(item => item.activity.requiresJetSki)
+    .flatMap((item, i) =>
+      Array.from({ length: item.numberOfPersons ?? 1 }, (_, j) => ({
+        index: i * 10 + j,
+        label: `${item.activity.name} · ${item.activity.duration}`,
+        jetType: (item.activity.jetType ?? 'VX') as 'VX' | 'FX',
+      }))
+    )
 
   // File d'attente jet ski
   const handleAddToWaitingList = async (jetSkiId: string) => {
@@ -329,6 +342,7 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
               clientFirstname: formData.clientFirstname,
               clientPhone: formData.clientPhone,
               clientIdNumber: formData.clientIdNumber,
+              clientOrigin: formData.clientOrigin,
             }}
           />
         )}
@@ -364,10 +378,10 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
           />
         )}
 
-        {/* Étape 6 : Jet Ski (si jet ski) OU Horaires (si pas de jet ski) */}
+        {/* Étape 6 : Attribution individuelle des jets ski */}
         {step === 6 && hasJetSki && (
-          <Step3JetSki
-            jetType={jetType}
+          <StepJetSkiAssign
+            slots={jetSlots}
             clientFirstname={formData.clientFirstname}
             clientName={formData.clientName}
             onNext={handleStep6JetSki}
