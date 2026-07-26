@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { CONFIG } from '../config'
 import { supabase } from '../lib/supabase'
 import { Page } from '../App'
@@ -6,6 +7,7 @@ import ActiveRentals from './ActiveRentals'
 import Archives from './Archives'
 import Clients from './Clients'
 import Analytics from './Analytics'
+import DraftRentals from './DraftRentals'
 import Parking from './Parking'
 import Fleet from './Fleet'
 
@@ -14,19 +16,48 @@ interface Props {
   setCurrentPage: (page: Page) => void
 }
 
+interface ResumeState {
+  draftId: string
+  formData: Record<string, unknown>
+  step: number
+}
+
 const navItems: { id: Page; label: string }[] = [
-  { id: 'active',     label: '🚤 Locations actives' },
-  { id: 'new-rental', label: '➕ Nouvelle location' },
   { id: 'fleet',      label: '🛥️ Ma Flotte' },
+  { id: 'active',     label: '🚤 Locations actives' },
+  { id: 'new-rental', label: '➕ Nouvelle' },
+  { id: 'drafts',     label: '⏸️ En pause' },
   { id: 'parking',    label: '🅿️ Parking' },
   { id: 'archives',   label: '📁 Archives' },
   { id: 'clients',    label: '👥 Clients' },
-  { id: 'dashboard',  label: '📊 Tableau de bord' },
+  { id: 'dashboard',  label: '📊 Statistiques' },
 ]
 
 export default function Layout({ currentPage, setCurrentPage }: Props) {
+  const [resumeState, setResumeState] = useState<ResumeState | null>(null)
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
+  }
+
+  const handleResume = (draftId: string, formData: Record<string, unknown>, step: number) => {
+    setResumeState({ draftId, formData, step })
+    setCurrentPage('new-rental')
+  }
+
+  const handleNewRentalComplete = () => {
+    setResumeState(null)
+    setCurrentPage('active')
+  }
+
+  const handlePause = () => {
+    setResumeState(null)
+    setCurrentPage('active')
+  }
+
+  const handleNavigation = (page: Page) => {
+    if (page !== 'new-rental') setResumeState(null)
+    setCurrentPage(page)
   }
 
   return (
@@ -57,7 +88,7 @@ export default function Layout({ currentPage, setCurrentPage }: Props) {
             {navItems.map(item => (
               <button
                 key={item.id}
-                onClick={() => setCurrentPage(item.id)}
+                onClick={() => handleNavigation(item.id)}
                 className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-all ${
                   currentPage === item.id
                     ? 'border-white text-white'
@@ -73,13 +104,28 @@ export default function Layout({ currentPage, setCurrentPage }: Props) {
 
       {/* Main Content */}
       <main className="max-w-5xl mx-auto px-4 py-6">
-        {currentPage === 'active'     && <ActiveRentals onNewRental={() => setCurrentPage('new-rental')} />}
-        {currentPage === 'new-rental' && <NewRental onComplete={() => setCurrentPage('active')} onPause={() => setCurrentPage('active')} />}
-        {currentPage === 'fleet'      && <Fleet />}
-        {currentPage === 'parking'    && <Parking />}
-        {currentPage === 'archives'   && <Archives />}
-        {currentPage === 'clients'    && <Clients />}
-        {currentPage === 'dashboard'  && <Analytics />}
+
+        {currentPage === 'active' && (
+          <ActiveRentals onNewRental={() => setCurrentPage('new-rental')} />
+        )}
+
+        {currentPage === 'new-rental' && (
+          <NewRental
+            onComplete={handleNewRentalComplete}
+            onPause={handlePause}
+            initialFormData={resumeState?.formData as Parameters<typeof NewRental>[0]['initialFormData']}
+            initialStep={resumeState?.step}
+            draftId={resumeState?.draftId}
+          />
+        )}
+
+        {currentPage === 'drafts'    && <DraftRentals onResume={handleResume} />}
+        {currentPage === 'fleet'     && <Fleet />}
+        {currentPage === 'parking'   && <Parking />}
+        {currentPage === 'archives'  && <Archives />}
+        {currentPage === 'clients'   && <Clients />}
+        {currentPage === 'dashboard' && <Analytics />}
+
       </main>
     </div>
   )
