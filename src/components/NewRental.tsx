@@ -106,11 +106,11 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
       price: formData.finalTTC,
       discount: formData.discount,
       price_ht: ht,
-      // jet_ski_id calculé depuis les items actifs du panier
+      // jet_ski_id calculé depuis le scheduledCart (avec assignedJetSkiId rempli)
       jet_ski_id: (() => {
-        const ids = (formData.cart as any[])
+        const ids = scheduledCart
           .filter(i => i.assignedJetSkiId)
-          .map(i => i.assignedJetSkiId as string)
+          .map(i => i.assignedJetSkiId!)
         return ids.length > 0 ? ids.join(',') : null
       })(),
       payment_method: formData.paymentMethod,
