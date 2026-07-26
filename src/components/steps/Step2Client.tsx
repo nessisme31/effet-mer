@@ -5,8 +5,9 @@ export interface ClientData {
   clientName: string
   clientFirstname: string
   clientPhone: string
-  clientIdNumber: string
+  clientIdNumber: string          // optionnel mais stocké si renseigné
   clientOrigin: 'hotel' | 'externe' | ''
+  villaNumber?: string            // uniquement si hôtel
 }
 
 interface ClientRecord {
@@ -15,6 +16,7 @@ interface ClientRecord {
   clientPhone: string
   clientIdNumber: string
   clientOrigin: 'hotel' | 'externe' | ''
+  villaNumber?: string
 }
 
 interface Props {
@@ -31,6 +33,7 @@ export default function Step2Client({ onNext, onBack, onPartialChange, initialDa
   const [clientPhone,     setClientPhone]     = useState(initialData?.clientPhone     ?? '')
   const [clientIdNumber,  setClientIdNumber]  = useState(initialData?.clientIdNumber  ?? '')
   const [clientOrigin,    setClientOrigin]    = useState<'hotel' | 'externe' | ''>(initialData?.clientOrigin ?? '')
+  const [villaNumber,     setVillaNumber]     = useState(initialData?.villaNumber ?? '')
 
   // ── Recherche client existant ──────────────────────────────
   const [searchQuery,   setSearchQuery]   = useState('')
@@ -124,14 +127,19 @@ export default function Step2Client({ onNext, onBack, onPartialChange, initialDa
     })
   }
 
+  // N° pièce d'identité rendu optionnel
   const canContinue =
-    clientName.trim() && clientFirstname.trim() &&
-    clientPhone.trim() && clientIdNumber.trim() &&
+    clientName.trim() &&
+    clientFirstname.trim() &&
+    clientPhone.trim() &&
     clientOrigin !== ''
 
   const handleSubmit = () => {
     if (!canContinue) return
-    onNext({ clientName, clientFirstname, clientPhone, clientIdNumber, clientOrigin })
+    onNext({
+      clientName, clientFirstname, clientPhone, clientIdNumber, clientOrigin,
+      villaNumber: clientOrigin === 'hotel' ? villaNumber : undefined,
+    })
   }
 
   return (
@@ -287,7 +295,8 @@ export default function Step2Client({ onNext, onBack, onPartialChange, initialDa
 
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1">
-            N° Pièce d'identité <span className="text-red-500">*</span>
+            N° Pièce d'identité
+            <span className="text-gray-400 text-xs font-normal ml-1">(optionnel)</span>
           </label>
           <input
             type="text"
@@ -333,6 +342,23 @@ export default function Step2Client({ onNext, onBack, onPartialChange, initialDa
             <p className="text-xs text-gray-400 mt-1.5 text-center">
               Sélectionnez une option pour continuer
             </p>
+          )}
+
+          {/* ── N° de villa (uniquement si Hôtel) ── */}
+          {clientOrigin === 'hotel' && (
+            <div className="mt-3">
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                🏠 N° de villa
+                <span className="text-gray-400 text-xs font-normal ml-1">(optionnel)</span>
+              </label>
+              <input
+                type="text"
+                value={villaNumber}
+                onChange={e => setVillaNumber(e.target.value)}
+                placeholder="Ex: Villa 12, Bungalow 4..."
+                className="w-full border-2 border-blue-200 bg-blue-50 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-400 outline-none text-gray-800 transition-all"
+              />
+            </div>
           )}
         </div>
       </div>
