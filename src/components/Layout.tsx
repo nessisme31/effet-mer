@@ -72,7 +72,7 @@ export default function Layout({ currentPage, setCurrentPage }: Props) {
       {/* Main Content */}
       <main className="max-w-5xl mx-auto px-4 py-6">
         {currentPage === 'active'     && <ActiveRentals onNewRental={() => setCurrentPage('new-rental')} />}
-        {currentPage === 'new-rental' && <NewRental onComplete={() => setCurrentPage('active')} />}
+        {currentPage === 'new-rental' && <NewRental onComplete={() => setCurrentPage('active')} onPause={() => setCurrentPage('active')} />}
         {currentPage === 'parking'    && <Parking />}
         {currentPage === 'archives'   && <Archives />}
         {currentPage === 'clients'    && <Clients />}
