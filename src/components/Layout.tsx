@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { CONFIG } from '../config'
 import { supabase } from '../lib/supabase'
 import { Page } from '../App'
@@ -22,37 +21,8 @@ const navItems: { id: Page; label: string }[] = [
 ]
 
 export default function Layout({ currentPage, setCurrentPage }: Props) {
-  // ── État de l'édition ────────────────────────────────────
-  const [editRentalId, setEditRentalId] = useState<string | null>(null)
-
   const handleLogout = async () => {
     await supabase.auth.signOut()
-  }
-
-  // Ouvrir une location en mode édition
-  const handleEditRental = (id: string) => {
-    setEditRentalId(id)
-    setCurrentPage('new-rental')
-  }
-
-  // Quand on navigue ailleurs, effacer l'id d'édition
-  const handleNav = (page: Page) => {
-    if (page !== 'new-rental') {
-      setEditRentalId(null)
-    }
-    setCurrentPage(page)
-  }
-
-  // Quand la nouvelle location / édition est terminée
-  const handleRentalComplete = () => {
-    setEditRentalId(null)
-    setCurrentPage('active')
-  }
-
-  // Nouvelle location (sans édition)
-  const handleNewRental = () => {
-    setEditRentalId(null)
-    setCurrentPage('new-rental')
   }
 
   return (
@@ -69,53 +39,41 @@ export default function Layout({ currentPage, setCurrentPage }: Props) {
           </div>
           <button
             onClick={handleLogout}
-            className="text-blue-300 hover:text-white text-sm transition-colors"
+            className="text-blue-300 hover:text-white text-sm transition-colors flex items-center gap-1"
           >
-            Déconnexion
+            <span>🚪</span> Déconnexion
           </button>
         </div>
       </header>
 
-      {/* Nav */}
-      <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4">
-          <div className="flex overflow-x-auto">
+      {/* Navigation */}
+      <nav className="bg-blue-700 shadow">
+        <div className="max-w-5xl mx-auto px-2">
+          <div className="flex overflow-x-auto scrollbar-hide">
             {navItems.map(item => (
               <button
                 key={item.id}
-                onClick={() => handleNav(item.id)}
-                className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                onClick={() => setCurrentPage(item.id)}
+                className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-all ${
                   currentPage === item.id
-                    ? 'border-blue-700 text-blue-700'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    ? 'border-white text-white'
+                    : 'border-transparent text-blue-200 hover:text-white hover:border-blue-300'
                 }`}
               >
-                {item.id === 'new-rental' && editRentalId ? '✏️ Modifier location' : item.label}
+                {item.label}
               </button>
             ))}
           </div>
         </div>
       </nav>
 
-      {/* Content */}
+      {/* Main Content */}
       <main className="max-w-5xl mx-auto px-4 py-6">
-        {currentPage === 'active' && (
-          <ActiveRentals
-            onNewRental={handleNewRental}
-            onEditRental={handleEditRental}
-          />
-        )}
-        {currentPage === 'new-rental' && (
-          <NewRental
-            onComplete={handleRentalComplete}
-            rentalId={editRentalId ?? undefined}
-          />
-        )}
-        {currentPage === 'archives' && (
-          <Archives onEditRental={handleEditRental} />
-        )}
-        {currentPage === 'clients' && <Clients />}
-        {currentPage === 'dashboard' && <Analytics />}
+        {currentPage === 'active'     && <ActiveRentals onNewRental={() => setCurrentPage('new-rental')} />}
+        {currentPage === 'new-rental' && <NewRental onComplete={() => setCurrentPage('active')} />}
+        {currentPage === 'archives'   && <Archives />}
+        {currentPage === 'clients'    && <Clients />}
+        {currentPage === 'dashboard'  && <Analytics />}
       </main>
     </div>
   )
