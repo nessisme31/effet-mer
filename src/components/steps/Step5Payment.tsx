@@ -1,9 +1,11 @@
 import { useState } from 'react'
-import { CONFIG } from '../../config'
+import { CONFIG, ActivityConfig } from '../../config'
 
 interface Props {
-  price: number                               // ← prix total calculé (déjà multiplié si multi-jets)
-  activityLabel?: string                      // ← ex: "Jet Ski VX × 2 · 30 min"
+  activity: ActivityConfig
+  activitySubtype?: string
+  numberOfPersons?: number
+  totalPrice?: number
   onNext: (paymentMethod: string) => void
   onBack: () => void
 }
@@ -14,8 +16,10 @@ const PAYMENT_ICONS: Record<string, string> = {
   'Virement': '🏦',
 }
 
-export default function Step5Payment({ price, activityLabel, onNext, onBack }: Props) {
+export default function Step5Payment({ activity, activitySubtype, numberOfPersons, totalPrice, onNext, onBack }: Props) {
   const [paymentMethod, setPaymentMethod] = useState('')
+
+  const displayPrice = totalPrice ?? activity.price
 
   return (
     <div>
@@ -24,10 +28,16 @@ export default function Step5Payment({ price, activityLabel, onNext, onBack }: P
       <div className="bg-blue-50 border border-blue-100 rounded-2xl p-5 mb-6 text-center">
         <p className="text-gray-500 text-sm mb-1">Montant à encaisser</p>
         <p className="text-4xl font-bold text-blue-700">
-          {price.toLocaleString()} <span className="text-2xl">{CONFIG.currency}</span>
+          {displayPrice.toLocaleString()} <span className="text-2xl">{CONFIG.currency}</span>
         </p>
-        {activityLabel && (
-          <p className="text-gray-500 text-sm mt-2">{activityLabel}</p>
+        <p className="text-gray-500 text-sm mt-2">
+          {activity.name}{activitySubtype ? ` — ${activitySubtype}` : ''} · {activity.duration}
+        </p>
+        {/* Détail du calcul pour bouée tractée */}
+        {numberOfPersons && numberOfPersons > 1 && totalPrice && (
+          <p className="text-blue-500 text-xs mt-1 font-medium">
+            {activity.price.toLocaleString()} {CONFIG.currency} × {numberOfPersons} personnes
+          </p>
         )}
       </div>
 
@@ -43,7 +53,7 @@ export default function Step5Payment({ price, activityLabel, onNext, onBack }: P
                 : 'border-gray-200 bg-white hover:border-blue-300'
             }`}
           >
-            <span className="text-3xl">{PAYMENT_ICONS[method] ?? '💳'}</span>
+            <span className="text-3xl">{PAYMENT_ICONS[method]}</span>
             <span className="font-semibold text-gray-800 text-lg">{method}</span>
             {paymentMethod === method && (
               <span className="ml-auto text-blue-500 text-xl">✓</span>
