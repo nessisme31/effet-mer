@@ -584,6 +584,13 @@ export default function ActiveRentals({ onNewRental }: Props) {
                                   )}
 
                                   <p className="text-gray-400 text-xs">{item.activity.duration} · {item.itemPrice.toLocaleString()} {CONFIG.currency}</p>
+
+                                  {/* Numéro de jet ski */}
+                                  {item.activity.requiresJetSki && (
+                                    item.assignedJetSkiId
+                                      ? <p className="text-blue-600 text-xs font-semibold mt-0.5">🚤 {item.assignedJetSkiId}</p>
+                                      : status !== 'returned' && <p className="text-gray-400 text-xs mt-0.5">🚤 Jet à définir</p>
+                                  )}
                                 </div>
 
                                 {/* Boutons selon statut */}
