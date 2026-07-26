@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { CONFIG } from '../config'
 import { supabase } from '../lib/supabase'
 import { Page } from '../App'
@@ -7,60 +6,25 @@ import ActiveRentals from './ActiveRentals'
 import Archives from './Archives'
 import Clients from './Clients'
 import Analytics from './Analytics'
-import DraftRentals from './DraftRentals'
+import Parking from './Parking'
 
 interface Props {
   currentPage: Page
   setCurrentPage: (page: Page) => void
 }
 
-// ─── État de reprise d'un brouillon ──────────────────────────
-interface ResumeState {
-  draftId: string
-  formData: Record<string, unknown>
-  step: number
-}
-
 const navItems: { id: Page; label: string }[] = [
   { id: 'active',     label: '🚤 Locations actives' },
   { id: 'new-rental', label: '➕ Nouvelle location' },
-  { id: 'drafts',     label: '⏸️ En pause' },
+  { id: 'parking',    label: '🅿️ Parking' },
   { id: 'archives',   label: '📁 Archives' },
   { id: 'clients',    label: '👥 Clients' },
   { id: 'dashboard',  label: '📊 Tableau de bord' },
 ]
 
 export default function Layout({ currentPage, setCurrentPage }: Props) {
-  const [resumeState, setResumeState] = useState<ResumeState | null>(null)
-
   const handleLogout = async () => {
     await supabase.auth.signOut()
-  }
-
-  // Reprendre un brouillon : on restaure les données et on navigue vers "new-rental"
-  const handleResume = (draftId: string, formData: Record<string, unknown>, step: number) => {
-    setResumeState({ draftId, formData, step })
-    setCurrentPage('new-rental')
-  }
-
-  // Quand NewRental est complété (location finalisée)
-  const handleNewRentalComplete = () => {
-    setResumeState(null)
-    setCurrentPage('active')
-  }
-
-  // Quand NewRental est mis en pause
-  const handlePause = () => {
-    setResumeState(null)
-    setCurrentPage('active')
-  }
-
-  // Quand on navigue ailleurs, effacer l'état de reprise
-  const handleNavigation = (page: Page) => {
-    if (page !== 'new-rental') {
-      setResumeState(null)
-    }
-    setCurrentPage(page)
   }
 
   return (
@@ -91,7 +55,7 @@ export default function Layout({ currentPage, setCurrentPage }: Props) {
             {navItems.map(item => (
               <button
                 key={item.id}
-                onClick={() => handleNavigation(item.id)}
+                onClick={() => setCurrentPage(item.id)}
                 className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-all ${
                   currentPage === item.id
                     ? 'border-white text-white'
@@ -107,30 +71,12 @@ export default function Layout({ currentPage, setCurrentPage }: Props) {
 
       {/* Main Content */}
       <main className="max-w-5xl mx-auto px-4 py-6">
-
-        {currentPage === 'active' && (
-          <ActiveRentals onNewRental={() => setCurrentPage('new-rental')} />
-        )}
-
-        {currentPage === 'new-rental' && (
-          <NewRental
-            onComplete={handleNewRentalComplete}
-            onPause={handlePause}
-            // Si on reprend un brouillon, passer les données sauvegardées
-            initialFormData={resumeState?.formData as Parameters<typeof NewRental>[0]['initialFormData']}
-            initialStep={resumeState?.step}
-            draftId={resumeState?.draftId}
-          />
-        )}
-
-        {currentPage === 'drafts' && (
-          <DraftRentals onResume={handleResume} />
-        )}
-
-        {currentPage === 'archives' && <Archives />}
-        {currentPage === 'clients'  && <Clients />}
-        {currentPage === 'dashboard' && <Analytics />}
-
+        {currentPage === 'active'     && <ActiveRentals onNewRental={() => setCurrentPage('new-rental')} />}
+        {currentPage === 'new-rental' && <NewRental onComplete={() => setCurrentPage('active')} />}
+        {currentPage === 'parking'    && <Parking />}
+        {currentPage === 'archives'   && <Archives />}
+        {currentPage === 'clients'    && <Clients />}
+        {currentPage === 'dashboard'  && <Analytics />}
       </main>
     </div>
   )
