@@ -4,13 +4,17 @@ import { CONFIG } from '../config'
 import { Rental } from '../types'
 import { openContractPDF } from '../utils/contractHTML'
 
+interface Props {
+  onEditRental: (id: string) => void   // ← NOUVEAU
+}
+
 const fmt = (iso: string) =>
   new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
-export default function Archives() {
+export default function Archives({ onEditRental }: Props) {
   const [rentals, setRentals] = useState<Rental[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -51,7 +55,7 @@ export default function Archives() {
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Filtres */}
       <div className="flex gap-3 mb-4">
         <input
           type="text"
@@ -76,17 +80,13 @@ export default function Archives() {
         )}
       </div>
 
-      {/* Summary bar */}
+      {/* Résumé CA */}
       <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 mb-4 flex justify-between items-center">
-        <span className="text-blue-700 text-sm font-medium">
-          {filtered.length} résultat(s)
-        </span>
-        <span className="text-blue-800 font-bold">
-          CA : {totalCA.toLocaleString()} {CONFIG.currency}
-        </span>
+        <span className="text-blue-700 text-sm font-medium">{filtered.length} résultat(s)</span>
+        <span className="text-blue-800 font-bold">CA : {totalCA.toLocaleString()} {CONFIG.currency}</span>
       </div>
 
-      {/* List */}
+      {/* Liste */}
       <div className="space-y-3">
         {filtered.map(rental => (
           <div key={rental.id} className="bg-white rounded-xl border p-4 hover:shadow-sm transition-shadow">
@@ -97,11 +97,21 @@ export default function Archives() {
                 </p>
                 <p className="text-gray-500 text-sm">{rental.client_phone}</p>
               </div>
-              <div className="text-right">
-                <span className="font-bold text-gray-800 text-lg">
-                  {rental.price.toLocaleString()} {CONFIG.currency}
-                </span>
-                <p className="text-gray-400 text-xs">{rental.payment_method}</p>
+              <div className="flex items-center gap-2">
+                {/* ── Bouton Modifier ── */}
+                <button
+                  onClick={() => onEditRental(rental.id)}
+                  className="bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                  title="Modifier cette location"
+                >
+                  ✏️ Modifier
+                </button>
+                <div className="text-right">
+                  <span className="font-bold text-gray-800 text-lg">
+                    {rental.price.toLocaleString()} {CONFIG.currency}
+                  </span>
+                  <p className="text-gray-400 text-xs">{rental.payment_method}</p>
+                </div>
               </div>
             </div>
 
@@ -110,10 +120,12 @@ export default function Archives() {
                 {rental.activity_name}{rental.activity_subtype ? ` — ${rental.activity_subtype}` : ''}
               </span>
               {rental.jet_ski_id && (
-                <span className="bg-gray-100 px-2 py-0.5 rounded-lg">🚤 {rental.jet_ski_id}</span>
+                <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
+                  🚤 {rental.jet_ski_id.split(',').join(' + ')}
+                </span>
               )}
               <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
-                ⏱️ {rental.start_time ? fmt(rental.start_time) : '--'} → {rental.end_time ? fmt(rental.end_time) : '--'}
+                ⏱️ {fmt(rental.start_time)} → {fmt(rental.end_time)}
               </span>
               <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
                 📅 {fmtDate(rental.created_at)}
@@ -122,6 +134,7 @@ export default function Archives() {
                 📋 {rental.contract_number}
               </span>
             </div>
+
             <div className="mt-3">
               <button
                 onClick={() => openContractPDF(rental)}
