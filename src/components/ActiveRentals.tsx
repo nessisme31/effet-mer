@@ -305,6 +305,10 @@ export default function ActiveRentals({ onNewRental }: Props) {
   // ── Rendre une activité ───────────────────────────────────
   const handleReturnItem = async (rental: Rental, cartId: string) => {
     const cart: CartItem[] = rental.cart_items ?? []
+
+    // Trouver l'item rendu (pour libérer son jet)
+    const returnedItem = cart.find(i => i.cartId === cartId)
+
     const updatedCart: CartItem[] = cart.map(i =>
       i.cartId === cartId
         ? { ...i, itemStatus: 'returned' as ItemStatus }
@@ -313,8 +317,13 @@ export default function ActiveRentals({ onNewRental }: Props) {
 
     const allReturned = updatedCart.every(i => i.itemStatus === 'returned')
     const waitingItems = updatedCart.filter(i => i.itemStatus === 'waiting')
-
     const returnedIds = updatedCart.filter(i => i.itemStatus === 'returned').map(i => i.cartId)
+
+    // ── Recalculer jet_ski_id : garder seulement les jets encore actifs ──
+    const stillActiveJets = updatedCart
+      .filter(i => i.itemStatus === 'active' && i.assignedJetSkiId)
+      .map(i => i.assignedJetSkiId!)
+    const newJetSkiId = stillActiveJets.length > 0 ? stillActiveJets.join(',') : null
 
     if (allReturned) {
       // Tout est rendu → archiver
@@ -322,10 +331,14 @@ export default function ActiveRentals({ onNewRental }: Props) {
         cart_items: updatedCart,
         status: 'archived',
         returned_cart_ids: returnedIds,
+        jet_ski_id: null,   // plus de jets actifs
       }).eq('id', rental.id)
 
-      // Vérifier file d'attente jet ski
-      if (rental.jet_ski_id) {
+      // Vérifier file d'attente pour le jet libéré
+      if (returnedItem?.assignedJetSkiId) {
+        const waiters = waiting.filter(w => w.jet_ski_id === returnedItem.assignedJetSkiId)
+        if (waiters.length > 0) setReturnAlert({ jetId: returnedItem.assignedJetSkiId, waiters })
+      } else if (rental.jet_ski_id) {
         const waiters = waiting.filter(w => w.jet_ski_id === rental.jet_ski_id)
         if (waiters.length > 0) setReturnAlert({ jetId: rental.jet_ski_id, waiters })
       }
@@ -333,7 +346,14 @@ export default function ActiveRentals({ onNewRental }: Props) {
       await supabase.from('rentals').update({
         cart_items: updatedCart,
         returned_cart_ids: returnedIds,
+        jet_ski_id: newJetSkiId,   // ← libère immédiatement le jet rendu
       }).eq('id', rental.id)
+
+      // Vérifier file d'attente pour le jet libéré
+      if (returnedItem?.assignedJetSkiId) {
+        const waiters = waiting.filter(w => w.jet_ski_id === returnedItem.assignedJetSkiId)
+        if (waiters.length > 0) setReturnAlert({ jetId: returnedItem.assignedJetSkiId, waiters })
+      }
 
       // S'il reste des activités en attente → proposer de démarrer la prochaine
       if (waitingItems.length > 0) {
