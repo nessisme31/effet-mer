@@ -125,7 +125,7 @@ export default function Archives({ onEditRental }: Props) {
                 </span>
               )}
               <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
-                ⏱️ {fmt(rental.start_time)} → {fmt(rental.end_time)}
+                ⏱️ {fmt(rental.start_time ?? '')} → {fmt(rental.end_time ?? '')}
               </span>
               <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
                 📅 {fmtDate(rental.created_at)}
