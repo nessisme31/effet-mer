@@ -21,15 +21,41 @@ const formatForInput = (d: Date) =>
 interface StartItemPanelProps {
   item: CartItem
   title: string
-  onConfirm: (startTime: string, endTime: string) => void
+  onConfirm: (startTime: string, endTime: string, jetSkiId?: string) => void
   onCancel: () => void
 }
 
 function StartItemPanel({ item, title, onConfirm, onCancel }: StartItemPanelProps) {
   const [startTime, setStartTime] = useState(formatForInput(new Date()))
+  const [selectedJet, setSelectedJet] = useState('')
+  const [occupiedJets, setOccupiedJets] = useState<Record<string, string>>({})
+
+  const requiresJet = item.activity.requiresJetSki ?? false
+  const jetType = item.activity.jetType as 'VX' | 'FX' | undefined
+  const jetsForType = requiresJet && jetType
+    ? CONFIG.jetSkis.filter(j => j.type === jetType)
+    : []
+
+  // Charger les jets occupés
+  useEffect(() => {
+    if (!requiresJet) return
+    supabase.from('rentals')
+      .select('jet_ski_id, end_time')
+      .eq('status', 'active')
+      .not('jet_ski_id', 'is', null)
+      .then(({ data }) => {
+        const map: Record<string, string> = {}
+        data?.forEach(r => r.jet_ski_id?.split(',').forEach((id: string) => {
+          map[id.trim()] = r.end_time
+        }))
+        setOccupiedJets(map)
+      })
+  }, [requiresJet])
 
   const endDate = new Date(new Date(startTime).getTime() + item.activity.durationMinutes * 60000)
   const endISO = endDate.toISOString()
+
+  const canConfirm = !requiresJet || !!selectedJet
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -57,13 +83,51 @@ function StartItemPanel({ item, title, onConfirm, onCancel }: StartItemPanelProp
           </p>
         </div>
 
+        {/* ── Sélecteur jet ski (si activité jet ski) ── */}
+        {requiresJet && jetsForType.length > 0 && (
+          <div className={`rounded-xl p-3 mb-4 border ${selectedJet ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}>
+            <p className={`text-xs font-bold mb-2 ${selectedJet ? 'text-blue-700' : 'text-orange-700'}`}>
+              🚤 Choisir le jet ski ({jetType})
+              {!selectedJet && <span className="text-orange-500 ml-1">— requis</span>}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {jetsForType.map(jet => {
+                const isOccupied = !!occupiedJets[jet.id]
+                const isSelected = selectedJet === jet.id
+                return (
+                  <button
+                    key={jet.id}
+                    onClick={() => !isOccupied && setSelectedJet(isSelected ? '' : jet.id)}
+                    disabled={isOccupied}
+                    title={isOccupied ? `Sorti — retour à ${fmt(occupiedJets[jet.id])}` : jet.name}
+                    className={`px-3 py-2 rounded-xl border-2 text-sm font-bold transition-all flex items-center gap-1.5 ${
+                      isOccupied
+                        ? 'border-red-200 bg-red-50 text-red-400 opacity-60 cursor-not-allowed'
+                        : isSelected
+                        ? 'border-blue-600 bg-blue-600 text-white'
+                        : 'border-blue-200 bg-white text-blue-700 hover:border-blue-400'
+                    }`}
+                  >
+                    <span>{isOccupied ? '❌' : isSelected ? '✅' : '🚤'}</span>
+                    <span>{jet.name}</span>
+                    {isOccupied && (
+                      <span className="text-red-400 text-xs font-normal">{fmt(occupiedJets[jet.id])}</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="flex gap-2">
           <button onClick={onCancel} className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-200">
             Annuler
           </button>
           <button
-            onClick={() => onConfirm(new Date(startTime).toISOString(), endISO)}
-            className="flex-1 bg-green-600 text-white py-2.5 rounded-xl text-sm font-bold hover:bg-green-700"
+            onClick={() => canConfirm && onConfirm(new Date(startTime).toISOString(), endISO, selectedJet || undefined)}
+            disabled={!canConfirm}
+            className="flex-1 bg-green-600 text-white py-2.5 rounded-xl text-sm font-bold hover:bg-green-700 disabled:opacity-40"
           >
             ▶️ Démarrer
           </button>
@@ -196,11 +260,23 @@ export default function ActiveRentals({ onNewRental }: Props) {
   }, [fetchAll])
 
   // ── Démarrer une activité ─────────────────────────────────
-  const handleStartItem = async (rental: Rental, item: CartItem, startTimeISO: string, endTimeISO: string) => {
+  const handleStartItem = async (
+    rental: Rental,
+    item: CartItem,
+    startTimeISO: string,
+    endTimeISO: string,
+    jetSkiId?: string   // ← NOUVEAU : jet assigné au moment du démarrage
+  ) => {
     const cart = rental.cart_items ?? []
     const updatedCart: CartItem[] = cart.map(i =>
       i.cartId === item.cartId
-        ? { ...i, itemStatus: 'active' as ItemStatus, itemStartTime: startTimeISO, itemEndTime: endTimeISO }
+        ? {
+            ...i,
+            itemStatus: 'active' as ItemStatus,
+            itemStartTime: startTimeISO,
+            itemEndTime: endTimeISO,
+            assignedJetSkiId: jetSkiId || i.assignedJetSkiId,
+          }
         : i
     )
 
@@ -208,10 +284,17 @@ export default function ActiveRentals({ onNewRental }: Props) {
     const activeItems = updatedCart.filter(i => i.itemStatus === 'active' && i.itemEndTime)
     const newEnd = activeItems.reduce((max, i) => (i.itemEndTime! > max ? i.itemEndTime! : max), endTimeISO)
 
+    // Recalculer jet_ski_id global (tous les jets assignés actifs)
+    const allJetIds = updatedCart
+      .filter(i => i.itemStatus === 'active' && (i as any).assignedJetSkiId)
+      .map(i => (i as any).assignedJetSkiId as string)
+    const newJetSkiId = allJetIds.length > 0 ? allJetIds.join(',') : rental.jet_ski_id
+
     await supabase.from('rentals').update({
       cart_items: updatedCart,
       start_time: rental.start_time ?? startTimeISO,
       end_time: newEnd,
+      jet_ski_id: newJetSkiId || null,
     }).eq('id', rental.id)
 
     setStartNextPanel(null)
@@ -337,8 +420,8 @@ export default function ActiveRentals({ onNewRental }: Props) {
         <StartItemPanel
           item={startItemPanel.item}
           title="Démarrer l'activité"
-          onConfirm={(startTimeISO, endTimeISO) =>
-            handleStartItem(startItemPanel.rental, startItemPanel.item, startTimeISO, endTimeISO)
+          onConfirm={(startTimeISO, endTimeISO, jetSkiId) =>
+            handleStartItem(startItemPanel.rental, startItemPanel.item, startTimeISO, endTimeISO, jetSkiId)
           }
           onCancel={() => setStartItemPanel(null)}
         />
