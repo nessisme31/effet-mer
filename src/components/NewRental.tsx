@@ -24,6 +24,7 @@ interface FormData {
   clientFirstname: string
   clientPhone: string
   clientIdNumber: string
+  clientOrigin: 'hotel' | 'externe' | ''   // ← NOUVEAU
   discount: number
   finalTTC: number
   signature: string
@@ -46,6 +47,7 @@ const DEFAULT_FORM: FormData = {
   clientFirstname: '',
   clientPhone: '',
   clientIdNumber: '',
+  clientOrigin: '',
   discount: 0,
   finalTTC: 0,
   signature: '',
@@ -100,6 +102,7 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
       client_firstname: formData.clientFirstname,
       client_phone: formData.clientPhone,
       client_id_number: formData.clientIdNumber.toUpperCase(),
+      client_origin: formData.clientOrigin || null,
       activity_name: cartSummary || formData.cart[0]?.activity.name,
       activity_id: formData.cart[0]?.activity.id ?? null,
       cart_items: scheduledCart,
