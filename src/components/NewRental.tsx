@@ -15,7 +15,7 @@ interface Props {
   rentalId?: string      // ← si fourni = mode ÉDITION
 }
 
-interface FormData {
+interface RentalFormData {
   activity: ActivityConfig | null
   activitySubtype?: string
   clientName: string
@@ -48,7 +48,7 @@ export default function NewRental({ onComplete, rentalId }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [flowState, setFlowState] = useState<FlowState>(isEditMode ? 'loading' : 'form')
   const [waitingJetId, setWaitingJetId] = useState('')
-  const [formData, setFormData] = useState<FormData>({
+  const [formData, setFormData] = useState<RentalFormData>({
     activity: null,
     clientName: '',
     clientFirstname: '',
