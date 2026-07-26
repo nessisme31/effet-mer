@@ -136,6 +136,21 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
     if (draftId) {
       await supabase.from('draft_rentals').delete().eq('id', draftId)
     }
+
+    // ── Mettre à jour / créer la fiche client ──────────────────
+    // UPSERT : si le client existe (même N° pièce) → mise à jour
+    //          sinon → création automatique
+    if (formData.clientIdNumber.trim()) {
+      await supabase.from('clients').upsert({
+        client_name:      formData.clientName.toUpperCase(),
+        client_firstname: formData.clientFirstname,
+        client_phone:     formData.clientPhone,
+        client_id_number: formData.clientIdNumber.toUpperCase(),
+        client_origin:    formData.clientOrigin || null,
+        updated_at:       new Date().toISOString(),
+      }, { onConflict: 'client_id_number' })
+      // On ignore les erreurs ici pour ne pas bloquer la location
+    }
   }
 
   // ─── Handlers ─────────────────────────────────────────────
