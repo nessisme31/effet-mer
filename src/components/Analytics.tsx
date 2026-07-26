@@ -3,216 +3,115 @@ import { supabase } from '../lib/supabase'
 import { CONFIG } from '../config'
 import { Rental } from '../types'
 
-// ─── Couleurs pour le camembert ───────────────────────────────
-const PIE_COLORS = [
-  '#3b82f6', '#10b981', '#f59e0b', '#ef4444',
-  '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16', '#f97316',
-]
+type AffluenceView = 'heure' | 'jour' | 'mois'
 
-// ─── Helpers SVG pour le camembert ──────────────────────────
-const polar = (cx: number, cy: number, r: number, angle: number) => {
-  const rad = (angle - 90) * (Math.PI / 180)
-  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) }
-}
+const MOIS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
+const MOIS_FR_LONG = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
+const HOURS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
 
-const slicePath = (cx: number, cy: number, r: number, start: number, end: number) => {
-  if (end - start >= 360) end = 359.99
-  const s = polar(cx, cy, r, start)
-  const e = polar(cx, cy, r, end)
-  const large = end - start > 180 ? 1 : 0
-  return `M${cx},${cy} L${s.x.toFixed(2)},${s.y.toFixed(2)} A${r},${r} 0 ${large} 1 ${e.x.toFixed(2)},${e.y.toFixed(2)} Z`
-}
-
-// ─── Camembert ──────────────────────────────────────────────
-interface PieChartProps {
-  data: { label: string; value: number; color: string }[]
-  total: number
-  currency: string
-}
-
-function PieChart({ data, total, currency }: PieChartProps) {
-  const [hovered, setHovered] = useState<number | null>(null)
-  const cx = 100, cy = 100, r = 80
-
-  let currentAngle = 0
-  const slices = data.map((item, i) => {
-    const pct = total > 0 ? item.value / total : 0
-    const angle = pct * 360
-    const start = currentAngle
-    currentAngle += angle
-    return { ...item, start, end: currentAngle, pct, index: i }
-  })
-
-  return (
-    <div className="flex flex-col sm:flex-row items-center gap-6">
-      {/* SVG Camembert */}
-      <div className="relative flex-shrink-0">
-        <svg width="200" height="200" viewBox="0 0 200 200">
-          {slices.map((slice, i) => (
-            <path
-              key={slice.label}
-              d={slicePath(cx, cy, hovered === i ? r + 6 : r, slice.start, slice.end)}
-              fill={slice.color}
-              opacity={hovered !== null && hovered !== i ? 0.65 : 1}
-              onMouseEnter={() => setHovered(i)}
-              onMouseLeave={() => setHovered(null)}
-              className="transition-all cursor-pointer"
-            />
-          ))}
-          {/* Cercle blanc au centre (donut) */}
-          <circle cx={cx} cy={cy} r={38} fill="white" />
-          {/* Texte central */}
-          {hovered !== null ? (
-            <>
-              <text x={cx} y={cy - 6} textAnchor="middle" className="text-xs" fontSize="9" fill="#6b7280">
-                {slices[hovered].label.length > 12
-                  ? slices[hovered].label.slice(0, 11) + '…'
-                  : slices[hovered].label}
-              </text>
-              <text x={cx} y={cy + 8} textAnchor="middle" fontSize="11" fontWeight="bold" fill="#1e3a8a">
-                {(slices[hovered].pct * 100).toFixed(1)}%
-              </text>
-            </>
-          ) : (
-            <>
-              <text x={cx} y={cy - 4} textAnchor="middle" fontSize="8" fill="#9ca3af">Total</text>
-              <text x={cx} y={cy + 8} textAnchor="middle" fontSize="10" fontWeight="bold" fill="#1f2937">
-                {total.toLocaleString()}
-              </text>
-              <text x={cx} y={cy + 20} textAnchor="middle" fontSize="8" fill="#6b7280">{currency}</text>
-            </>
-          )}
-        </svg>
-      </div>
-
-      {/* Légende */}
-      <div className="flex-1 space-y-2 w-full">
-        {slices.map((slice, i) => (
-          <div
-            key={slice.label}
-            className={`flex items-center justify-between gap-2 p-2 rounded-xl transition-all cursor-default ${
-              hovered === i ? 'bg-gray-100' : ''
-            }`}
-            onMouseEnter={() => setHovered(i)}
-            onMouseLeave={() => setHovered(null)}
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: slice.color }} />
-              <span className="text-sm text-gray-700 truncate">{slice.label}</span>
-            </div>
-            <div className="text-right flex-shrink-0">
-              <span className="font-bold text-gray-800 text-sm">{slice.value.toLocaleString()} {currency}</span>
-              <span className="text-gray-400 text-xs ml-1">({(slice.pct * 100).toFixed(1)}%)</span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-type Period = 'day' | 'month' | 'year'
-
-// ─── Composant principal ─────────────────────────────────────
 export default function Analytics() {
   const [rentals, setRentals] = useState<Rental[]>([])
   const [loading, setLoading] = useState(true)
-  const [period, setPeriod] = useState<Period>('day')
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10))
-  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7))
-  const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()))
+
+  // Affluence state
+  const [affluenceView, setAffluenceView] = useState<AffluenceView>('heure')
+  const now = new Date()
+  const [selectedDate, setSelectedDate] = useState(now.toISOString().slice(0, 10))         // YYYY-MM-DD
+  const [selectedMonth, setSelectedMonth] = useState(now.toISOString().slice(0, 7))        // YYYY-MM
+  const [selectedYear, setSelectedYear] = useState(String(now.getFullYear()))              // YYYY
 
   useEffect(() => {
-    supabase.from('rentals').select('*').order('created_at', { ascending: false })
-      .then(({ data }) => {
-        setRentals(data || [])
-        setLoading(false)
-      })
+    const fetch = async () => {
+      const { data } = await supabase
+        .from('rentals')
+        .select('*')
+        .order('created_at', { ascending: false })
+      setRentals(data || [])
+      setLoading(false)
+    }
+    fetch()
   }, [])
 
-  const now = new Date()
-  const today = now.toISOString().slice(0, 10)
+  // ── KPI ────────────────────────────────────────────────────
+  const today     = now.toISOString().slice(0, 10)
   const thisMonth = now.toISOString().slice(0, 7)
 
-  // Filtres temporels
-  const todayRentals  = rentals.filter(r => r.created_at.startsWith(today) && r.status !== 'pending_jet')
-  const monthRentals  = rentals.filter(r => r.created_at.startsWith(thisMonth) && r.status !== 'pending_jet')
+  const todayRentals  = rentals.filter(r => r.created_at.startsWith(today))
+  const monthRentals  = rentals.filter(r => r.created_at.startsWith(thisMonth))
   const activeRentals = rentals.filter(r => r.status === 'active')
-  const archivedRentals = rentals.filter(r => r.status === 'archived')
 
-  // Années disponibles (pour le sélecteur)
-  const availableYears = [...new Set(rentals.map(r => r.created_at.slice(0, 4)))].sort((a, b) => b.localeCompare(a))
-  if (!availableYears.includes(selectedYear)) availableYears.unshift(selectedYear)
-
-  // Filtrage selon la période sélectionnée
-  const prefix = period === 'day' ? selectedDate : period === 'month' ? selectedMonth : selectedYear
-  const periodRentals = rentals.filter(r =>
-    r.created_at.startsWith(prefix) && r.status !== 'pending_jet'
-  )
-  const periodCA = periodRentals.reduce((s, r) => s + r.price, 0)
-  const periodActivityMap = periodRentals.reduce((acc, r) => {
-    acc[r.activity_name] = (acc[r.activity_name] || 0) + r.price
-    return acc
-  }, {} as Record<string, number>)
-  const periodTopActivity = Object.entries(periodActivityMap).sort((a, b) => b[1] - a[1])[0]
-
-  // Labels de période
-  const periodLabel: Record<Period, string> = {
-    day: new Date(selectedDate + 'T12:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }),
-    month: new Date(selectedMonth + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }),
-    year: selectedYear,
-  }
-
-  // Nom court pour les KPIs
-  const periodShort: Record<Period, string> = { day: 'CE JOUR', month: 'CE MOIS', year: 'CETTE ANNÉE' }
-
-  // CA global
   const caToday = todayRentals.reduce((s, r) => s + r.price, 0)
   const caMonth = monthRentals.reduce((s, r) => s + r.price, 0)
-  const caTotal = archivedRentals.reduce((s, r) => s + r.price, 0)
+  const caTotal = rentals.reduce((s, r) => s + r.price, 0)
 
-  // Statistiques par activité (sur toutes les locations archivées)
-  const activityMap = archivedRentals.reduce((acc, r) => {
-    acc[r.activity_name] = acc[r.activity_name] || { count: 0, ca: 0 }
-    acc[r.activity_name].count++
-    acc[r.activity_name].ca += r.price
+  // ── Activités ──────────────────────────────────────────────
+  const activityMap = rentals.reduce((acc, r) => {
+    const key = r.activity_name + (r.activity_subtype ? ` — ${r.activity_subtype}` : '')
+    acc[key] = acc[key] || { count: 0, ca: 0 }
+    acc[key].count++
+    acc[key].ca += r.price
     return acc
   }, {} as Record<string, { count: number; ca: number }>)
 
   const sortedActivities = Object.entries(activityMap).sort((a, b) => b[1].ca - a[1].ca)
   const topActivity = sortedActivities[0]
 
-  // Camembert données
-  const pieData = sortedActivities.map(([activity, stats], i) => ({
-    label: activity,
-    value: stats.ca,
-    color: PIE_COLORS[i % PIE_COLORS.length],
-  }))
-
-  // Heures par jet ski
-  const jetHoursMap = archivedRentals
-    .filter(r => r.jet_ski_id && r.start_time && r.end_time)
+  // ── Jet skis ───────────────────────────────────────────────
+  const jetMap = rentals
+    .filter(r => r.jet_ski_id)
     .reduce((acc, r) => {
-      const id = r.jet_ski_id!
-      const minutes = (new Date(r.end_time!).getTime() - new Date(r.start_time!).getTime()) / 60000
-      acc[id] = acc[id] || { sorties: 0, minutes: 0 }
-      acc[id].sorties++
-      acc[id].minutes += minutes
+      const ids = (r.jet_ski_id || '').split(',').map(s => s.trim()).filter(Boolean)
+      ids.forEach(id => { acc[id] = (acc[id] || 0) + 1 })
       return acc
-    }, {} as Record<string, { sorties: number; minutes: number }>)
+    }, {} as Record<string, number>)
 
-  // Paiements
-  const payMap = archivedRentals.reduce((acc, r) => {
+  // ── Paiements ──────────────────────────────────────────────
+  const payMap = rentals.reduce((acc, r) => {
     acc[r.payment_method] = (acc[r.payment_method] || 0) + r.price
     return acc
   }, {} as Record<string, number>)
 
-  const formatMinutes = (minutes: number) => {
-    const h = Math.floor(minutes / 60)
-    const m = Math.round(minutes % 60)
-    if (h === 0) return `${m} min`
-    if (m === 0) return `${h}h`
-    return `${h}h${String(m).padStart(2, '0')}`
+  // ── Affluence : Vue HEURE (pour un jour donné) ─────────────
+  const hourData = HOURS.map(h => {
+    const count = rentals.filter(r => {
+      if (!r.start_time) return false
+      const d = new Date(r.start_time)
+      return (
+        r.start_time.startsWith(selectedDate) &&
+        d.getHours() === h
+      )
+    }).length
+    return { label: `${h}h`, count }
+  })
+
+  // ── Affluence : Vue JOUR (pour un mois donné) ─────────────
+  const [selYear, selMonthNum] = selectedMonth.split('-').map(Number)
+  const daysInMonth = new Date(selYear, selMonthNum, 0).getDate()
+  const dayData = Array.from({ length: daysInMonth }, (_, i) => {
+    const day = i + 1
+    const dayStr = `${selectedMonth}-${String(day).padStart(2, '0')}`
+    const count = rentals.filter(r => r.start_time && r.start_time.startsWith(dayStr)).length
+    return { label: String(day), count }
+  })
+
+  // ── Affluence : Vue MOIS (pour une année donnée) ──────────
+  const monthData = MOIS_FR.map((label, idx) => {
+    const monthStr = `${selectedYear}-${String(idx + 1).padStart(2, '0')}`
+    const count = rentals.filter(r => r.start_time && r.start_time.startsWith(monthStr)).length
+    return { label, count }
+  })
+
+  // ── Barre de max pour normaliser ──────────────────────────
+  const currentData = affluenceView === 'heure' ? hourData : affluenceView === 'jour' ? dayData : monthData
+  const maxCount = Math.max(...currentData.map(d => d.count), 1)
+
+  // ── Couleur des barres selon intensité ────────────────────
+  const barColor = (count: number) => {
+    const ratio = count / maxCount
+    if (ratio === 0) return 'bg-gray-100'
+    if (ratio < 0.33) return 'bg-blue-200'
+    if (ratio < 0.66) return 'bg-blue-400'
+    return 'bg-blue-600'
   }
 
   if (loading) return <div className="text-center py-16 text-gray-400">⏳ Chargement...</div>
@@ -236,7 +135,7 @@ export default function Analytics() {
         <div className="bg-green-600 text-white rounded-2xl p-4 shadow">
           <p className="text-green-100 text-xs font-medium mb-1">CA TOTAL</p>
           <p className="text-2xl font-bold">{caTotal.toLocaleString()}</p>
-          <p className="text-green-100 text-xs">{CONFIG.currency} · {archivedRentals.length} archivée(s)</p>
+          <p className="text-green-100 text-xs">{CONFIG.currency} · {rentals.length} location(s)</p>
         </div>
         <div className="bg-orange-500 text-white rounded-2xl p-4 shadow">
           <p className="text-orange-100 text-xs font-medium mb-1">EN COURS</p>
@@ -247,225 +146,205 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* ── 🔍 Récapitulatif par période ── */}
+      {/* ── CA par activité ── */}
       <div className="bg-white rounded-2xl border p-5 mb-4 shadow-sm">
-        <h3 className="font-bold text-gray-800 mb-4">🔍 Récapitulatif par période</h3>
+        <h3 className="font-bold text-gray-800 mb-4">📊 CA par activité</h3>
+        {sortedActivities.length === 0 ? (
+          <p className="text-gray-400 text-sm text-center py-4">Pas encore de données</p>
+        ) : (
+          <div className="space-y-4">
+            {sortedActivities.map(([activity, stats]) => {
+              const pct = caTotal > 0 ? (stats.ca / caTotal * 100) : 0
+              return (
+                <div key={activity}>
+                  {/* Nom + stats */}
+                  <div className="flex justify-between items-start mb-1.5">
+                    <span className="text-gray-700 font-semibold text-sm">{activity}</span>
+                    <div className="text-right flex-shrink-0 ml-2">
+                      <span className="font-bold text-gray-800">{stats.ca.toLocaleString()} {CONFIG.currency}</span>
+                    </div>
+                  </div>
+                  {/* Sous-stats : nb locations + part du CA */}
+                  <div className="flex items-center gap-3 mb-1.5">
+                    <span className="bg-blue-50 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">
+                      🔁 {stats.count} location{stats.count > 1 ? 's' : ''}
+                    </span>
+                    <span className="text-gray-400 text-xs">{pct.toFixed(1)}% du CA total</span>
+                  </div>
+                  {/* Barre de progression */}
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-2 bg-blue-500 rounded-full transition-all"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
 
-        {/* Sélecteur Jour / Mois / Année */}
-        <div className="flex gap-2 mb-4 bg-gray-100 rounded-xl p-1">
-          {(['day', 'month', 'year'] as Period[]).map(p => (
+      {/* ── Affluence ── */}
+      <div className="bg-white rounded-2xl border p-5 mb-4 shadow-sm">
+        <h3 className="font-bold text-gray-800 mb-4">📈 Affluence</h3>
+
+        {/* Onglets de vue */}
+        <div className="flex gap-2 mb-4">
+          {(['heure', 'jour', 'mois'] as AffluenceView[]).map(v => (
             <button
-              key={p}
-              onClick={() => setPeriod(p)}
-              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
-                period === p
-                  ? 'bg-white text-blue-700 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
+              key={v}
+              onClick={() => setAffluenceView(v)}
+              className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-all ${
+                affluenceView === v
+                  ? 'bg-blue-700 text-white shadow'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
-              {p === 'day' ? '📅 Jour' : p === 'month' ? '📆 Mois' : '📊 Année'}
+              {v === 'heure' ? '⏰ Par heure' : v === 'jour' ? '📅 Par jour' : '📆 Par mois'}
             </button>
           ))}
         </div>
 
-        {/* Sélecteur de date selon la période */}
-        {period === 'day' && (
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={e => setSelectedDate(e.target.value)}
-            className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none mb-4"
-          />
-        )}
-        {period === 'month' && (
-          <input
-            type="month"
-            value={selectedMonth}
-            onChange={e => setSelectedMonth(e.target.value)}
-            className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none mb-4"
-          />
-        )}
-        {period === 'year' && (
-          <select
-            value={selectedYear}
-            onChange={e => setSelectedYear(e.target.value)}
-            className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none mb-4 bg-white"
-          >
-            {availableYears.map(y => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
-        )}
+        {/* Sélecteur de période */}
+        <div className="mb-5">
+          {affluenceView === 'heure' && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500 flex-shrink-0">Jour :</span>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={e => setSelectedDate(e.target.value)}
+                className="border border-gray-300 rounded-xl px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <span className="text-xs text-gray-400">
+                {new Date(selectedDate).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+              </span>
+            </div>
+          )}
+          {affluenceView === 'jour' && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500 flex-shrink-0">Mois :</span>
+              <input
+                type="month"
+                value={selectedMonth}
+                onChange={e => setSelectedMonth(e.target.value)}
+                className="border border-gray-300 rounded-xl px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <span className="text-xs text-gray-400">
+                {MOIS_FR_LONG[Number(selectedMonth.split('-')[1]) - 1]} {selectedMonth.split('-')[0]}
+              </span>
+            </div>
+          )}
+          {affluenceView === 'mois' && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500 flex-shrink-0">Année :</span>
+              <select
+                value={selectedYear}
+                onChange={e => setSelectedYear(e.target.value)}
+                className="border border-gray-300 rounded-xl px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {[now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1].map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
 
-        {/* Titre de la période */}
-        <p className="text-center text-gray-500 text-sm font-medium mb-4">
-          📅 {periodLabel[period]}
-        </p>
-
-        {periodRentals.length === 0 ? (
-          <div className="text-center py-6 text-gray-400">
-            <p className="text-3xl mb-2">📅</p>
+        {/* Graphique en barres */}
+        {currentData.every(d => d.count === 0) ? (
+          <div className="text-center py-8 text-gray-400">
+            <div className="text-4xl mb-2">📭</div>
             <p className="text-sm">Aucune location sur cette période</p>
           </div>
         ) : (
           <>
-            {/* KPIs de la période */}
-            <div className="grid grid-cols-3 gap-3 mb-4">
-              <div className="bg-blue-50 rounded-xl p-3 text-center">
-                <p className="text-blue-500 text-xs font-medium mb-1">CA {periodShort[period]}</p>
-                <p className="text-xl font-bold text-blue-700">{periodCA.toLocaleString()}</p>
-                <p className="text-blue-400 text-xs">{CONFIG.currency}</p>
-              </div>
-              <div className="bg-green-50 rounded-xl p-3 text-center">
-                <p className="text-green-500 text-xs font-medium mb-1">RÉSERVATIONS</p>
-                <p className="text-xl font-bold text-green-700">{periodRentals.length}</p>
-                <p className="text-green-400 text-xs">location(s)</p>
-              </div>
-              <div className="bg-orange-50 rounded-xl p-3 text-center">
-                <p className="text-orange-500 text-xs font-medium mb-1">ACTIVITÉ ⭐</p>
-                <p className="text-sm font-bold text-orange-700 leading-tight mt-0.5">
-                  {periodTopActivity ? periodTopActivity[0] : '—'}
-                </p>
-                {periodTopActivity && (
-                  <p className="text-orange-400 text-xs">{periodTopActivity[1].toLocaleString()} {CONFIG.currency}</p>
-                )}
-              </div>
-            </div>
-
-            {/* Liste des locations */}
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {periodRentals.map(rental => (
-                <div key={rental.id} className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2">
-                  <div>
-                    <p className="font-medium text-gray-800 text-sm">
-                      {rental.client_firstname} {rental.client_name}
-                    </p>
-                    <p className="text-gray-500 text-xs">
-                      {rental.activity_name}
-                      {period !== 'day' && (
-                        <span className="ml-2 text-gray-400">
-                          · {new Date(rental.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold text-blue-700 text-sm">{rental.price.toLocaleString()} {CONFIG.currency}</p>
-                    <p className="text-gray-400 text-xs">{rental.payment_method}</p>
-                  </div>
+            {/* Barres verticales */}
+            <div
+              className="flex items-end gap-1 h-40"
+              style={{ gap: affluenceView === 'jour' ? '2px' : '6px' }}
+            >
+              {currentData.map((d, i) => (
+                <div key={i} className="flex-1 flex flex-col items-center justify-end h-full">
+                  {/* Valeur au-dessus */}
+                  {d.count > 0 && (
+                    <span className="text-xs font-bold text-blue-700 mb-1">
+                      {d.count}
+                    </span>
+                  )}
+                  {/* Barre */}
+                  <div
+                    className={`w-full rounded-t-md transition-all ${barColor(d.count)}`}
+                    style={{ height: `${(d.count / maxCount) * 100}%`, minHeight: d.count > 0 ? '4px' : '2px' }}
+                  />
                 </div>
               ))}
+            </div>
+
+            {/* Étiquettes sous les barres */}
+            <div
+              className="flex mt-1"
+              style={{ gap: affluenceView === 'jour' ? '2px' : '6px' }}
+            >
+              {currentData.map((d, i) => (
+                <div key={i} className="flex-1 text-center">
+                  <span className={`text-gray-500 font-medium ${
+                    affluenceView === 'jour' ? 'text-[9px]' : 'text-xs'
+                  }`}>
+                    {d.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Légende */}
+            <div className="mt-4 flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-sm bg-blue-200" />
+                <span className="text-xs text-gray-500">Peu chargé</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-sm bg-blue-400" />
+                <span className="text-xs text-gray-500">Modéré</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-sm bg-blue-600" />
+                <span className="text-xs text-gray-500">Très chargé</span>
+              </div>
+              <span className="text-xs text-gray-400 ml-auto">
+                Total période : {currentData.reduce((s, d) => s + d.count, 0)} location(s)
+              </span>
             </div>
           </>
         )}
       </div>
 
-      {/* ── 🥧 CA par activité (camembert) ── */}
-      <div className="bg-white rounded-2xl border p-5 mb-4 shadow-sm">
-        <h3 className="font-bold text-gray-800 mb-4">🥧 CA par activité</h3>
-        {pieData.length === 0 ? (
-          <p className="text-gray-400 text-sm text-center py-4">Pas encore de données</p>
-        ) : (
-          <PieChart data={pieData} total={caTotal} currency={CONFIG.currency} />
-        )}
-      </div>
-
-      {/* ── 🚤 Jets skis — sorties ET heures ── */}
+      {/* ── Utilisation jets skis ── */}
       <div className="bg-white rounded-2xl border p-5 mb-4 shadow-sm">
         <h3 className="font-bold text-gray-800 mb-4">🚤 Utilisation des jets skis</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {CONFIG.jetSkis.map(jet => {
-            const stats = jetHoursMap[jet.id]
-            const hasActivity = stats && stats.sorties > 0
-            return (
-              <div
-                key={jet.id}
-                className={`text-center p-3 rounded-xl ${hasActivity ? 'bg-blue-50' : 'bg-gray-50'}`}
-              >
-                <div className="text-2xl mb-1">🚤</div>
-                <div className="font-bold text-gray-800 text-sm">{jet.name}</div>
-                <div className={`font-bold text-lg ${hasActivity ? 'text-blue-600' : 'text-gray-400'}`}>
-                  {stats?.sorties ?? 0}
-                </div>
-                <div className="text-gray-400 text-xs">sortie(s)</div>
-                {hasActivity && (
-                  <div className="mt-1 bg-blue-100 rounded-lg px-1 py-0.5">
-                    <span className="text-blue-700 text-xs font-semibold">
-                      ⏱️ {formatMinutes(stats.minutes)}
-                    </span>
-                  </div>
-                )}
+        <div className="grid grid-cols-4 gap-2">
+          {CONFIG.jetSkis.map(jet => (
+            <div
+              key={jet.id}
+              className={`text-center p-3 rounded-xl ${
+                (jetMap[jet.id] || 0) > 0 ? 'bg-blue-50' : 'bg-gray-50'
+              }`}
+            >
+              <div className="text-2xl mb-1">🚤</div>
+              <div className="font-bold text-gray-800 text-sm">{jet.name}</div>
+              <div className={`font-bold text-lg ${
+                (jetMap[jet.id] || 0) > 0 ? 'text-blue-600' : 'text-gray-400'
+              }`}>
+                {jetMap[jet.id] || 0}
               </div>
-            )
-          })}
+              <div className="text-gray-400 text-xs">sortie(s)</div>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* ── 🏨 Origine clients : Hôtel vs Externe ── */}
-      <div className="bg-white rounded-2xl border p-5 mb-4 shadow-sm">
-        <h3 className="font-bold text-gray-800 mb-4">🏨 Hôtel vs Externe</h3>
-        {(() => {
-          const withOrigin = archivedRentals.filter(r => (r as any).client_origin)
-          const hotelRentals  = withOrigin.filter(r => (r as any).client_origin === 'hotel')
-          const externeRentals = withOrigin.filter(r => (r as any).client_origin === 'externe')
-          const hotelCA   = hotelRentals.reduce((s, r) => s + r.price, 0)
-          const externeCA = externeRentals.reduce((s, r) => s + r.price, 0)
-          const totalCA   = hotelCA + externeCA
-          const hotelPct   = totalCA > 0 ? (hotelCA / totalCA * 100) : 0
-          const externePct = totalCA > 0 ? (externeCA / totalCA * 100) : 0
-
-          if (withOrigin.length === 0) return (
-            <p className="text-gray-400 text-sm text-center py-4">
-              Pas encore de données — disponible dès la prochaine location
-            </p>
-          )
-
-          return (
-            <div className="space-y-4">
-              {/* Compteurs */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-blue-50 rounded-2xl p-4 text-center">
-                  <div className="text-3xl mb-1">🏨</div>
-                  <p className="font-bold text-blue-800 text-xl">{hotelRentals.length}</p>
-                  <p className="text-blue-500 text-xs font-medium">location(s) Hôtel</p>
-                  <p className="text-blue-700 font-bold mt-1">{hotelCA.toLocaleString()} {CONFIG.currency}</p>
-                  <p className="text-blue-400 text-xs">{hotelPct.toFixed(1)}% du CA</p>
-                </div>
-                <div className="bg-green-50 rounded-2xl p-4 text-center">
-                  <div className="text-3xl mb-1">🌍</div>
-                  <p className="font-bold text-green-800 text-xl">{externeRentals.length}</p>
-                  <p className="text-green-500 text-xs font-medium">location(s) Externe</p>
-                  <p className="text-green-700 font-bold mt-1">{externeCA.toLocaleString()} {CONFIG.currency}</p>
-                  <p className="text-green-400 text-xs">{externePct.toFixed(1)}% du CA</p>
-                </div>
-              </div>
-
-              {/* Barre de répartition */}
-              <div>
-                <div className="flex justify-between text-xs text-gray-500 mb-1">
-                  <span>🏨 Hôtel {hotelPct.toFixed(0)}%</span>
-                  <span>Externe {externePct.toFixed(0)}% 🌍</span>
-                </div>
-                <div className="h-3 bg-gray-100 rounded-full overflow-hidden flex">
-                  <div
-                    className="h-full bg-blue-500 transition-all rounded-l-full"
-                    style={{ width: `${hotelPct}%` }}
-                  />
-                  <div
-                    className="h-full bg-green-500 transition-all rounded-r-full"
-                    style={{ width: `${externePct}%` }}
-                  />
-                </div>
-                <p className="text-center text-xs text-gray-400 mt-1">
-                  {withOrigin.length} location(s) avec origine renseignée
-                </p>
-              </div>
-            </div>
-          )
-        })()}
-      </div>
-
-      {/* ── 💳 CA par mode de paiement ── */}
+      {/* ── Paiements ── */}
       <div className="bg-white rounded-2xl border p-5 shadow-sm">
         <h3 className="font-bold text-gray-800 mb-4">💳 CA par mode de paiement</h3>
         <div className="space-y-2">
@@ -475,17 +354,14 @@ export default function Analytics() {
             const icons: Record<string, string> = { 'Espèces': '💵', 'Carte bancaire': '💳', 'Virement': '🏦' }
             return (
               <div key={method} className="flex items-center gap-3">
-                <span className="text-xl w-8">{icons[method]}</span>
+                <span className="text-xl w-8">{icons[method] || '💰'}</span>
                 <div className="flex-1">
                   <div className="flex justify-between text-sm mb-1">
                     <span className="text-gray-700">{method}</span>
-                    <div>
-                      <span className="font-medium">{amount.toLocaleString()} {CONFIG.currency}</span>
-                      <span className="text-gray-400 text-xs ml-1">({pct.toFixed(1)}%)</span>
-                    </div>
+                    <span className="font-medium">{amount.toLocaleString()} {CONFIG.currency}</span>
                   </div>
                   <div className="h-1.5 bg-gray-100 rounded-full">
-                    <div className="h-1.5 bg-green-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                    <div className="h-1.5 bg-green-500 rounded-full" style={{ width: `${pct}%` }} />
                   </div>
                 </div>
               </div>
