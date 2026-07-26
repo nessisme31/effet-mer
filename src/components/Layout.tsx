@@ -7,6 +7,7 @@ import Archives from './Archives'
 import Clients from './Clients'
 import Analytics from './Analytics'
 import Parking from './Parking'
+import Fleet from './Fleet'
 
 interface Props {
   currentPage: Page
@@ -16,6 +17,7 @@ interface Props {
 const navItems: { id: Page; label: string }[] = [
   { id: 'active',     label: '🚤 Locations actives' },
   { id: 'new-rental', label: '➕ Nouvelle location' },
+  { id: 'fleet',      label: '🛥️ Ma Flotte' },
   { id: 'parking',    label: '🅿️ Parking' },
   { id: 'archives',   label: '📁 Archives' },
   { id: 'clients',    label: '👥 Clients' },
@@ -73,6 +75,7 @@ export default function Layout({ currentPage, setCurrentPage }: Props) {
       <main className="max-w-5xl mx-auto px-4 py-6">
         {currentPage === 'active'     && <ActiveRentals onNewRental={() => setCurrentPage('new-rental')} />}
         {currentPage === 'new-rental' && <NewRental onComplete={() => setCurrentPage('active')} onPause={() => setCurrentPage('active')} />}
+        {currentPage === 'fleet'      && <Fleet />}
         {currentPage === 'parking'    && <Parking />}
         {currentPage === 'archives'   && <Archives />}
         {currentPage === 'clients'    && <Clients />}
