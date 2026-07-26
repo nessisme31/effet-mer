@@ -2,19 +2,14 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { CONFIG } from '../config'
 import { Rental } from '../types'
-import { openContractPDF } from '../utils/contractHTML'
 
-interface Props {
-  onEditRental: (id: string) => void   // ← NOUVEAU
-}
-
-const fmt = (iso: string) =>
-  new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+const fmt = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '--'
 
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
-export default function Archives({ onEditRental }: Props) {
+export default function Archives() {
   const [rentals, setRentals] = useState<Rental[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -37,8 +32,7 @@ export default function Archives({ onEditRental }: Props) {
     const nameMatch = !search ||
       `${r.client_firstname} ${r.client_name}`.toLowerCase().includes(search.toLowerCase()) ||
       r.client_phone.includes(search)
-    const dateMatch = !dateFilter ||
-      r.created_at.startsWith(dateFilter)
+    const dateMatch = !dateFilter || r.created_at.startsWith(dateFilter)
     return nameMatch && dateMatch
   })
 
@@ -97,21 +91,11 @@ export default function Archives({ onEditRental }: Props) {
                 </p>
                 <p className="text-gray-500 text-sm">{rental.client_phone}</p>
               </div>
-              <div className="flex items-center gap-2">
-                {/* ── Bouton Modifier ── */}
-                <button
-                  onClick={() => onEditRental(rental.id)}
-                  className="bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
-                  title="Modifier cette location"
-                >
-                  ✏️ Modifier
-                </button>
-                <div className="text-right">
-                  <span className="font-bold text-gray-800 text-lg">
-                    {rental.price.toLocaleString()} {CONFIG.currency}
-                  </span>
-                  <p className="text-gray-400 text-xs">{rental.payment_method}</p>
-                </div>
+              <div className="text-right">
+                <span className="font-bold text-gray-800 text-lg">
+                  {rental.price.toLocaleString()} {CONFIG.currency}
+                </span>
+                <p className="text-gray-400 text-xs">{rental.payment_method}</p>
               </div>
             </div>
 
@@ -120,12 +104,10 @@ export default function Archives({ onEditRental }: Props) {
                 {rental.activity_name}{rental.activity_subtype ? ` — ${rental.activity_subtype}` : ''}
               </span>
               {rental.jet_ski_id && (
-                <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
-                  🚤 {rental.jet_ski_id.split(',').join(' + ')}
-                </span>
+                <span className="bg-gray-100 px-2 py-0.5 rounded-lg">🚤 {rental.jet_ski_id}</span>
               )}
               <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
-                ⏱️ {fmt(rental.start_time ?? '')} → {fmt(rental.end_time ?? '')}
+                ⏱️ {fmt(rental.start_time)} → {fmt(rental.end_time)}
               </span>
               <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
                 📅 {fmtDate(rental.created_at)}
@@ -133,15 +115,6 @@ export default function Archives({ onEditRental }: Props) {
               <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
                 📋 {rental.contract_number}
               </span>
-            </div>
-
-            <div className="mt-3">
-              <button
-                onClick={() => openContractPDF(rental)}
-                className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-blue-200"
-              >
-                📄 Télécharger le contrat
-              </button>
             </div>
           </div>
         ))}
