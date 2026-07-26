@@ -24,7 +24,8 @@ interface FormData {
   clientFirstname: string
   clientPhone: string
   clientIdNumber: string
-  clientOrigin: 'hotel' | 'externe' | ''   // ← NOUVEAU
+  clientOrigin: 'hotel' | 'externe' | ''
+  villaNumber: string   // ← NOUVEAU
   discount: number
   finalTTC: number
   signature: string
@@ -47,6 +48,7 @@ const DEFAULT_FORM: FormData = {
   clientPhone: '',
   clientIdNumber: '',
   clientOrigin: '',
+  villaNumber: '',
   discount: 0,
   finalTTC: 0,
   signature: '',
@@ -147,6 +149,7 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
         client_phone:     formData.clientPhone,
         client_id_number: formData.clientIdNumber.toUpperCase(),
         client_origin:    formData.clientOrigin || null,
+        villa_number:     formData.villaNumber  || null,
         updated_at:       new Date().toISOString(),
       }, { onConflict: 'client_id_number' })
       // On ignore les erreurs ici pour ne pas bloquer la location
