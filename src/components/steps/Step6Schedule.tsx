@@ -6,36 +6,20 @@ interface Props {
   onComplete: (startTime: string, endTime: string) => void
   onBack: () => void
   isSubmitting: boolean
-  initialStartTime?: string   // ← NOUVEAU : pré-remplissage en mode édition (ISO string)
-  initialEndTime?: string     // ← NOUVEAU : pré-remplissage en mode édition (ISO string)
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
-const formatForInput = (date: Date): string => {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
+const formatForInput = (date: Date): string =>
+  `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 
 const addMinutes = (date: Date, minutes: number): Date =>
   new Date(date.getTime() + minutes * 60000)
 
-export default function Step6Schedule({
-  activity, onComplete, onBack, isSubmitting,
-  initialStartTime, initialEndTime
-}: Props) {
+export default function Step6Schedule({ activity, onComplete, onBack, isSubmitting }: Props) {
   const now = new Date()
-
-  // En mode édition, utilise les horaires existants ; sinon heure actuelle
-  const defaultStart = initialStartTime
-    ? formatForInput(new Date(initialStartTime))
-    : formatForInput(now)
-
-  const defaultEnd = initialEndTime
-    ? formatForInput(new Date(initialEndTime))
-    : formatForInput(addMinutes(now, activity.durationMinutes))
-
-  const [startTime, setStartTime] = useState(defaultStart)
-  const [endTime, setEndTime] = useState(defaultEnd)
+  const [startTime, setStartTime] = useState(formatForInput(now))
+  const [endTime, setEndTime] = useState(formatForInput(addMinutes(now, activity.durationMinutes)))
 
   const handleStartChange = (value: string) => {
     setStartTime(value)
@@ -55,11 +39,6 @@ export default function Step6Schedule({
       <h2 className="text-xl font-bold text-gray-800 mb-2">Étape 6 — Horaires</h2>
       <p className="text-gray-500 text-sm mb-6">
         Durée prévue : <strong>{activity.duration}</strong>
-        {initialStartTime && (
-          <span className="ml-2 text-amber-600 text-xs font-medium">
-            ✏️ Vous modifiez des horaires existants
-          </span>
-        )}
       </p>
 
       <div className="space-y-5">
@@ -109,7 +88,7 @@ export default function Step6Schedule({
           disabled={isSubmitting}
           className="flex-1 bg-green-600 text-white py-3.5 rounded-2xl font-bold disabled:opacity-50 hover:bg-green-700 transition-colors text-lg"
         >
-          {isSubmitting ? '⏳ Enregistrement...' : initialStartTime ? '✅ Sauvegarder les modifications' : '✅ Valider la location'}
+          {isSubmitting ? '⏳ Enregistrement...' : '✅ Valider la location'}
         </button>
       </div>
     </div>
