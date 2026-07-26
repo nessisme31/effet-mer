@@ -60,31 +60,23 @@ export default function Step2Client({ onNext, onBack, onPartialChange, initialDa
     }
     const timer = setTimeout(async () => {
       setIsSearching(true)
+      // Recherche dans la table clients dédiée (plus rapide, pas de doublons)
       const { data } = await supabase
-        .from('rentals')
+        .from('clients')
         .select('client_name, client_firstname, client_phone, client_id_number, client_origin')
         .or(
           `client_name.ilike.%${searchQuery}%,client_firstname.ilike.%${searchQuery}%,client_phone.ilike.%${searchQuery}%`
         )
-        .order('created_at', { ascending: false })
-        .limit(50)
+        .order('updated_at', { ascending: false })
+        .limit(20)
 
-      // Dédoublonner par numéro de pièce d'identité
-      const seen = new Set<string>()
-      const unique: ClientRecord[] = []
-      data?.forEach(r => {
-        const key = r.client_id_number ?? r.client_phone
-        if (!seen.has(key)) {
-          seen.add(key)
-          unique.push({
-            clientName:      r.client_name      ?? '',
-            clientFirstname: r.client_firstname ?? '',
-            clientPhone:     r.client_phone     ?? '',
-            clientIdNumber:  r.client_id_number ?? '',
-            clientOrigin:    (r.client_origin   ?? '') as 'hotel' | 'externe' | '',
-          })
-        }
-      })
+      const unique: ClientRecord[] = (data ?? []).map(r => ({
+        clientName:      r.client_name      ?? '',
+        clientFirstname: r.client_firstname ?? '',
+        clientPhone:     r.client_phone     ?? '',
+        clientIdNumber:  r.client_id_number ?? '',
+        clientOrigin:    (r.client_origin   ?? '') as 'hotel' | 'externe' | '',
+      }))
 
       setSearchResults(unique)
       setShowDropdown(unique.length > 0)
