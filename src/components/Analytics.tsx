@@ -401,6 +401,70 @@ export default function Analytics() {
         </div>
       </div>
 
+      {/* ── 🏨 Origine clients : Hôtel vs Externe ── */}
+      <div className="bg-white rounded-2xl border p-5 mb-4 shadow-sm">
+        <h3 className="font-bold text-gray-800 mb-4">🏨 Hôtel vs Externe</h3>
+        {(() => {
+          const withOrigin = archivedRentals.filter(r => (r as any).client_origin)
+          const hotelRentals  = withOrigin.filter(r => (r as any).client_origin === 'hotel')
+          const externeRentals = withOrigin.filter(r => (r as any).client_origin === 'externe')
+          const hotelCA   = hotelRentals.reduce((s, r) => s + r.price, 0)
+          const externeCA = externeRentals.reduce((s, r) => s + r.price, 0)
+          const totalCA   = hotelCA + externeCA
+          const hotelPct   = totalCA > 0 ? (hotelCA / totalCA * 100) : 0
+          const externePct = totalCA > 0 ? (externeCA / totalCA * 100) : 0
+
+          if (withOrigin.length === 0) return (
+            <p className="text-gray-400 text-sm text-center py-4">
+              Pas encore de données — disponible dès la prochaine location
+            </p>
+          )
+
+          return (
+            <div className="space-y-4">
+              {/* Compteurs */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-blue-50 rounded-2xl p-4 text-center">
+                  <div className="text-3xl mb-1">🏨</div>
+                  <p className="font-bold text-blue-800 text-xl">{hotelRentals.length}</p>
+                  <p className="text-blue-500 text-xs font-medium">location(s) Hôtel</p>
+                  <p className="text-blue-700 font-bold mt-1">{hotelCA.toLocaleString()} {CONFIG.currency}</p>
+                  <p className="text-blue-400 text-xs">{hotelPct.toFixed(1)}% du CA</p>
+                </div>
+                <div className="bg-green-50 rounded-2xl p-4 text-center">
+                  <div className="text-3xl mb-1">🌍</div>
+                  <p className="font-bold text-green-800 text-xl">{externeRentals.length}</p>
+                  <p className="text-green-500 text-xs font-medium">location(s) Externe</p>
+                  <p className="text-green-700 font-bold mt-1">{externeCA.toLocaleString()} {CONFIG.currency}</p>
+                  <p className="text-green-400 text-xs">{externePct.toFixed(1)}% du CA</p>
+                </div>
+              </div>
+
+              {/* Barre de répartition */}
+              <div>
+                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <span>🏨 Hôtel {hotelPct.toFixed(0)}%</span>
+                  <span>Externe {externePct.toFixed(0)}% 🌍</span>
+                </div>
+                <div className="h-3 bg-gray-100 rounded-full overflow-hidden flex">
+                  <div
+                    className="h-full bg-blue-500 transition-all rounded-l-full"
+                    style={{ width: `${hotelPct}%` }}
+                  />
+                  <div
+                    className="h-full bg-green-500 transition-all rounded-r-full"
+                    style={{ width: `${externePct}%` }}
+                  />
+                </div>
+                <p className="text-center text-xs text-gray-400 mt-1">
+                  {withOrigin.length} location(s) avec origine renseignée
+                </p>
+              </div>
+            </div>
+          )
+        })()}
+      </div>
+
       {/* ── 💳 CA par mode de paiement ── */}
       <div className="bg-white rounded-2xl border p-5 shadow-sm">
         <h3 className="font-bold text-gray-800 mb-4">💳 CA par mode de paiement</h3>
