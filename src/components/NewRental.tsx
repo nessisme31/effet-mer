@@ -31,7 +31,6 @@ interface FormData {
   contractLanguage: ContractLanguage
   contractNumber: string
   paymentMethod: string
-  jetSkiIds: string[]   // un ID par slot jet ski, dans l'ordre
 }
 
 const generateContractNumber = () => {
@@ -48,7 +47,6 @@ const DEFAULT_FORM: FormData = {
   clientPhone: '',
   clientIdNumber: '',
   clientOrigin: '',
-  jetSkiIds: [],
   discount: 0,
   finalTTC: 0,
   signature: '',
@@ -67,14 +65,10 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
   const [waitingJetId, setWaitingJetId] = useState('')
   const [formData, setFormData] = useState<FormData>({ ...DEFAULT_FORM, ...initialFormData })
 
-  const hasJetSki = formData.cart.some(item => item.activity.requiresJetSki)
   const jetItem = formData.cart.find(item => item.activity.requiresJetSki)
-  const jetType = jetItem?.activity.jetType ?? 'VX'
 
-  // Étapes : avec ou sans jet ski
-  const stepLabels = hasJetSki
-    ? ['Panier', 'Client', 'Récap', 'Contrat', 'Paiement', 'Jet Ski', 'Horaires']
-    : ['Panier', 'Client', 'Récap', 'Contrat', 'Paiement', 'Horaires']
+  // Toujours 6 étapes — le jet ski est choisi dans l'étape Horaires
+  const stepLabels = ['Panier', 'Client', 'Récap', 'Contrat', 'Paiement', 'Horaires']
 
   const cartSummary = formData.cart
     .map(item => {
@@ -167,7 +161,7 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
 
   const handleStep5 = (paymentMethod: string) => {
     setFormData(prev => ({ ...prev, paymentMethod }))
-    setStep(6)
+    setStep(6)   // → toujours l'étape Horaires
   }
 
 
@@ -371,21 +365,12 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
 
 
 
-        {step === 6 && !hasJetSki && (
+        {/* Étape 6 : Horaires — toujours, avec ou sans jet ski */}
+        {step === 6 && (
           <StepScheduleMulti
             cart={formData.cart}
             onComplete={handleSchedule}
             onBack={() => setStep(5)}
-            isSubmitting={isSubmitting}
-          />
-        )}
-
-        {/* Étape 7 : Horaires (avec jet ski) */}
-        {step === 7 && hasJetSki && (
-          <StepScheduleMulti
-            cart={formData.cart}
-            onComplete={handleSchedule}
-            onBack={() => setStep(6)}
             isSubmitting={isSubmitting}
           />
         )}
