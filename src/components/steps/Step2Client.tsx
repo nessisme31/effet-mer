@@ -10,15 +10,14 @@ export interface ClientData {
 interface Props {
   onNext: (data: ClientData) => void
   onBack: () => void
-  initialData?: Partial<ClientData>   // ← NOUVEAU : pré-remplissage en mode édition
 }
 
-export default function Step2Client({ onNext, onBack, initialData }: Props) {
+export default function Step2Client({ onNext, onBack }: Props) {
   const [data, setData] = useState<ClientData>({
-    clientName: initialData?.clientName ?? '',
-    clientFirstname: initialData?.clientFirstname ?? '',
-    clientPhone: initialData?.clientPhone ?? '',
-    clientIdNumber: initialData?.clientIdNumber ?? '',
+    clientName: '',
+    clientFirstname: '',
+    clientPhone: '',
+    clientIdNumber: '',
   })
 
   const set = (field: keyof ClientData) => (e: React.ChangeEvent<HTMLInputElement>) =>
