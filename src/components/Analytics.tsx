@@ -3,6 +3,17 @@ import { supabase } from '../lib/supabase'
 import { CONFIG } from '../config'
 import { Rental } from '../types'
 
+interface ParkingEntry {
+  id: string
+  type: string
+  price: number
+  client_name: string
+  payment_method: string
+  status: string
+  created_at: string
+  start_time?: string
+}
+
 type AffluenceView = 'heure' | 'jour' | 'mois'
 
 const MOIS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
@@ -11,28 +22,30 @@ const HOURS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
 
 export default function Analytics() {
   const [rentals, setRentals] = useState<Rental[]>([])
+  const [parkings, setParkings] = useState<ParkingEntry[]>([])
   const [loading, setLoading] = useState(true)
 
   // Affluence state
   const [affluenceView, setAffluenceView] = useState<AffluenceView>('heure')
   const now = new Date()
-  const [selectedDate, setSelectedDate] = useState(now.toISOString().slice(0, 10))         // YYYY-MM-DD
-  const [selectedMonth, setSelectedMonth] = useState(now.toISOString().slice(0, 7))        // YYYY-MM
-  const [selectedYear, setSelectedYear] = useState(String(now.getFullYear()))              // YYYY
+  const [selectedDate, setSelectedDate] = useState(now.toISOString().slice(0, 10))
+  const [selectedMonth, setSelectedMonth] = useState(now.toISOString().slice(0, 7))
+  const [selectedYear, setSelectedYear] = useState(String(now.getFullYear()))
 
   useEffect(() => {
-    const fetch = async () => {
-      const { data } = await supabase
-        .from('rentals')
-        .select('*')
-        .order('created_at', { ascending: false })
-      setRentals(data || [])
+    const fetchAll = async () => {
+      const [rentalsRes, parkingsRes] = await Promise.all([
+        supabase.from('rentals').select('*').order('created_at', { ascending: false }),
+        supabase.from('parkings').select('*').order('created_at', { ascending: false }),
+      ])
+      setRentals(rentalsRes.data || [])
+      setParkings(parkingsRes.data || [])
       setLoading(false)
     }
-    fetch()
+    fetchAll()
   }, [])
 
-  // ── KPI ────────────────────────────────────────────────────
+  // ── KPI : locations + parkings ─────────────────────────────
   const today     = now.toISOString().slice(0, 10)
   const thisMonth = now.toISOString().slice(0, 7)
 
@@ -40,11 +53,21 @@ export default function Analytics() {
   const monthRentals  = rentals.filter(r => r.created_at.startsWith(thisMonth))
   const activeRentals = rentals.filter(r => r.status === 'active')
 
-  const caToday = todayRentals.reduce((s, r) => s + r.price, 0)
-  const caMonth = monthRentals.reduce((s, r) => s + r.price, 0)
-  const caTotal = rentals.reduce((s, r) => s + r.price, 0)
+  const todayParkings  = parkings.filter(p => p.created_at.startsWith(today))
+  const monthParkings  = parkings.filter(p => p.created_at.startsWith(thisMonth))
 
-  // ── Activités ──────────────────────────────────────────────
+  const caToday = todayRentals.reduce((s, r) => s + r.price, 0)
+              + todayParkings.reduce((s, p) => s + p.price, 0)
+  const caMonth = monthRentals.reduce((s, r) => s + r.price, 0)
+              + monthParkings.reduce((s, p) => s + p.price, 0)
+  const caRentalsTotal  = rentals.reduce((s, r) => s + r.price, 0)
+  const caParkingsTotal = parkings.reduce((s, p) => s + p.price, 0)
+  const caTotal = caRentalsTotal + caParkingsTotal
+
+  const todayCount  = todayRentals.length + todayParkings.length
+  const monthCount  = monthRentals.length + monthParkings.length
+
+  // ── Activités (locations seulement) ───────────────────────
   const activityMap = rentals.reduce((acc, r) => {
     const key = r.activity_name + (r.activity_subtype ? ` — ${r.activity_subtype}` : '')
     acc[key] = acc[key] || { count: 0, ca: 0 }
@@ -53,8 +76,22 @@ export default function Analytics() {
     return acc
   }, {} as Record<string, { count: number; ca: number }>)
 
-  const sortedActivities = Object.entries(activityMap).sort((a, b) => b[1].ca - a[1].ca)
-  const topActivity = sortedActivities[0]
+  // ── Parkings dans le CA par activité ──────────────────────
+  const parkingMap = parkings.reduce((acc, p) => {
+    acc[p.type] = acc[p.type] || { count: 0, ca: 0 }
+    acc[p.type].count++
+    acc[p.type].ca += p.price
+    return acc
+  }, {} as Record<string, { count: number; ca: number }>)
+
+  // Fusionner locations + parkings dans un seul tableau
+  const allActivityMap = { ...activityMap }
+  Object.entries(parkingMap).forEach(([key, val]) => {
+    allActivityMap[`🅿️ ${key}`] = val
+  })
+
+  const sortedActivities = Object.entries(allActivityMap).sort((a, b) => b[1].ca - a[1].ca)
+  const topActivity = Object.entries(activityMap).sort((a, b) => b[1].ca - a[1].ca)[0]
 
   // ── Jet skis ───────────────────────────────────────────────
   const jetMap = rentals
@@ -65,47 +102,47 @@ export default function Analytics() {
       return acc
     }, {} as Record<string, number>)
 
-  // ── Paiements ──────────────────────────────────────────────
-  const payMap = rentals.reduce((acc, r) => {
-    acc[r.payment_method] = (acc[r.payment_method] || 0) + r.price
-    return acc
-  }, {} as Record<string, number>)
+  // ── Paiements (locations + parkings) ──────────────────────
+  const payMap: Record<string, number> = {}
+  rentals.forEach(r => { payMap[r.payment_method] = (payMap[r.payment_method] || 0) + r.price })
+  parkings.forEach(p => { payMap[p.payment_method] = (payMap[p.payment_method] || 0) + p.price })
 
-  // ── Affluence : Vue HEURE (pour un jour donné) ─────────────
+  // ── Affluence : Vue HEURE ─────────────────────────────────
   const hourData = HOURS.map(h => {
-    const count = rentals.filter(r => {
+    const rentalCount = rentals.filter(r => {
       if (!r.start_time) return false
       const d = new Date(r.start_time)
-      return (
-        r.start_time.startsWith(selectedDate) &&
-        d.getHours() === h
-      )
+      return r.start_time.startsWith(selectedDate) && d.getHours() === h
     }).length
-    return { label: `${h}h`, count }
+    const parkingCount = parkings.filter(p => {
+      const d = new Date(p.created_at)
+      return p.created_at.startsWith(selectedDate) && d.getHours() === h
+    }).length
+    return { label: `${h}h`, count: rentalCount + parkingCount }
   })
 
-  // ── Affluence : Vue JOUR (pour un mois donné) ─────────────
+  // ── Affluence : Vue JOUR ──────────────────────────────────
   const [selYear, selMonthNum] = selectedMonth.split('-').map(Number)
   const daysInMonth = new Date(selYear, selMonthNum, 0).getDate()
   const dayData = Array.from({ length: daysInMonth }, (_, i) => {
     const day = i + 1
     const dayStr = `${selectedMonth}-${String(day).padStart(2, '0')}`
-    const count = rentals.filter(r => r.start_time && r.start_time.startsWith(dayStr)).length
-    return { label: String(day), count }
+    const rentalCount = rentals.filter(r => r.start_time && r.start_time.startsWith(dayStr)).length
+    const parkingCount = parkings.filter(p => p.created_at.startsWith(dayStr)).length
+    return { label: String(day), count: rentalCount + parkingCount }
   })
 
-  // ── Affluence : Vue MOIS (pour une année donnée) ──────────
+  // ── Affluence : Vue MOIS ──────────────────────────────────
   const monthData = MOIS_FR.map((label, idx) => {
     const monthStr = `${selectedYear}-${String(idx + 1).padStart(2, '0')}`
-    const count = rentals.filter(r => r.start_time && r.start_time.startsWith(monthStr)).length
-    return { label, count }
+    const rentalCount = rentals.filter(r => r.start_time && r.start_time.startsWith(monthStr)).length
+    const parkingCount = parkings.filter(p => p.created_at.startsWith(monthStr)).length
+    return { label, count: rentalCount + parkingCount }
   })
 
-  // ── Barre de max pour normaliser ──────────────────────────
   const currentData = affluenceView === 'heure' ? hourData : affluenceView === 'jour' ? dayData : monthData
   const maxCount = Math.max(...currentData.map(d => d.count), 1)
 
-  // ── Couleur des barres selon intensité ────────────────────
   const barColor = (count: number) => {
     const ratio = count / maxCount
     if (ratio === 0) return 'bg-gray-100'
@@ -125,17 +162,17 @@ export default function Analytics() {
         <div className="bg-blue-700 text-white rounded-2xl p-4 shadow">
           <p className="text-blue-200 text-xs font-medium mb-1">CA AUJOURD'HUI</p>
           <p className="text-2xl font-bold">{caToday.toLocaleString()}</p>
-          <p className="text-blue-200 text-xs">{CONFIG.currency} · {todayRentals.length} location(s)</p>
+          <p className="text-blue-200 text-xs">{CONFIG.currency} · {todayCount} opération(s)</p>
         </div>
         <div className="bg-blue-500 text-white rounded-2xl p-4 shadow">
           <p className="text-blue-100 text-xs font-medium mb-1">CA CE MOIS</p>
           <p className="text-2xl font-bold">{caMonth.toLocaleString()}</p>
-          <p className="text-blue-100 text-xs">{CONFIG.currency} · {monthRentals.length} location(s)</p>
+          <p className="text-blue-100 text-xs">{CONFIG.currency} · {monthCount} opération(s)</p>
         </div>
         <div className="bg-green-600 text-white rounded-2xl p-4 shadow">
           <p className="text-green-100 text-xs font-medium mb-1">CA TOTAL</p>
           <p className="text-2xl font-bold">{caTotal.toLocaleString()}</p>
-          <p className="text-green-100 text-xs">{CONFIG.currency} · {rentals.length} location(s)</p>
+          <p className="text-green-100 text-xs">{CONFIG.currency} · dont {caParkingsTotal.toLocaleString()} parking</p>
         </div>
         <div className="bg-orange-500 text-white rounded-2xl p-4 shadow">
           <p className="text-orange-100 text-xs font-medium mb-1">EN COURS</p>
@@ -146,7 +183,7 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* ── CA par activité ── */}
+      {/* ── CA par activité (locations + parkings) ── */}
       <div className="bg-white rounded-2xl border p-5 mb-4 shadow-sm">
         <h3 className="font-bold text-gray-800 mb-4">📊 CA par activité</h3>
         {sortedActivities.length === 0 ? (
@@ -155,26 +192,28 @@ export default function Analytics() {
           <div className="space-y-4">
             {sortedActivities.map(([activity, stats]) => {
               const pct = caTotal > 0 ? (stats.ca / caTotal * 100) : 0
+              const isParking = activity.startsWith('🅿️')
               return (
                 <div key={activity}>
-                  {/* Nom + stats */}
                   <div className="flex justify-between items-start mb-1.5">
-                    <span className="text-gray-700 font-semibold text-sm">{activity}</span>
+                    <span className={`font-semibold text-sm ${isParking ? 'text-indigo-700' : 'text-gray-700'}`}>
+                      {activity}
+                    </span>
                     <div className="text-right flex-shrink-0 ml-2">
                       <span className="font-bold text-gray-800">{stats.ca.toLocaleString()} {CONFIG.currency}</span>
                     </div>
                   </div>
-                  {/* Sous-stats : nb locations + part du CA */}
                   <div className="flex items-center gap-3 mb-1.5">
-                    <span className="bg-blue-50 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">
-                      🔁 {stats.count} location{stats.count > 1 ? 's' : ''}
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      isParking ? 'bg-indigo-50 text-indigo-700' : 'bg-blue-50 text-blue-700'
+                    }`}>
+                      🔁 {stats.count} fois
                     </span>
                     <span className="text-gray-400 text-xs">{pct.toFixed(1)}% du CA total</span>
                   </div>
-                  {/* Barre de progression */}
                   <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                     <div
-                      className="h-2 bg-blue-500 rounded-full transition-all"
+                      className={`h-2 rounded-full transition-all ${isParking ? 'bg-indigo-500' : 'bg-blue-500'}`}
                       style={{ width: `${pct}%` }}
                     />
                   </div>
@@ -189,7 +228,6 @@ export default function Analytics() {
       <div className="bg-white rounded-2xl border p-5 mb-4 shadow-sm">
         <h3 className="font-bold text-gray-800 mb-4">📈 Affluence</h3>
 
-        {/* Onglets de vue */}
         <div className="flex gap-2 mb-4">
           {(['heure', 'jour', 'mois'] as AffluenceView[]).map(v => (
             <button
@@ -206,7 +244,6 @@ export default function Analytics() {
           ))}
         </div>
 
-        {/* Sélecteur de période */}
         <div className="mb-5">
           {affluenceView === 'heure' && (
             <div className="flex items-center gap-2">
@@ -252,28 +289,22 @@ export default function Analytics() {
           )}
         </div>
 
-        {/* Graphique en barres */}
         {currentData.every(d => d.count === 0) ? (
           <div className="text-center py-8 text-gray-400">
             <div className="text-4xl mb-2">📭</div>
-            <p className="text-sm">Aucune location sur cette période</p>
+            <p className="text-sm">Aucune opération sur cette période</p>
           </div>
         ) : (
           <>
-            {/* Barres verticales */}
             <div
-              className="flex items-end gap-1 h-40"
+              className="flex items-end h-40"
               style={{ gap: affluenceView === 'jour' ? '2px' : '6px' }}
             >
               {currentData.map((d, i) => (
                 <div key={i} className="flex-1 flex flex-col items-center justify-end h-full">
-                  {/* Valeur au-dessus */}
                   {d.count > 0 && (
-                    <span className="text-xs font-bold text-blue-700 mb-1">
-                      {d.count}
-                    </span>
+                    <span className="text-xs font-bold text-blue-700 mb-1">{d.count}</span>
                   )}
-                  {/* Barre */}
                   <div
                     className={`w-full rounded-t-md transition-all ${barColor(d.count)}`}
                     style={{ height: `${(d.count / maxCount) * 100}%`, minHeight: d.count > 0 ? '4px' : '2px' }}
@@ -281,24 +312,18 @@ export default function Analytics() {
                 </div>
               ))}
             </div>
-
-            {/* Étiquettes sous les barres */}
             <div
               className="flex mt-1"
               style={{ gap: affluenceView === 'jour' ? '2px' : '6px' }}
             >
               {currentData.map((d, i) => (
                 <div key={i} className="flex-1 text-center">
-                  <span className={`text-gray-500 font-medium ${
-                    affluenceView === 'jour' ? 'text-[9px]' : 'text-xs'
-                  }`}>
+                  <span className={`text-gray-500 font-medium ${affluenceView === 'jour' ? 'text-[9px]' : 'text-xs'}`}>
                     {d.label}
                   </span>
                 </div>
               ))}
             </div>
-
-            {/* Légende */}
             <div className="mt-4 flex items-center gap-4 flex-wrap">
               <div className="flex items-center gap-1.5">
                 <div className="w-3 h-3 rounded-sm bg-blue-200" />
@@ -313,7 +338,7 @@ export default function Analytics() {
                 <span className="text-xs text-gray-500">Très chargé</span>
               </div>
               <span className="text-xs text-gray-400 ml-auto">
-                Total période : {currentData.reduce((s, d) => s + d.count, 0)} location(s)
+                Total : {currentData.reduce((s, d) => s + d.count, 0)} opération(s)
               </span>
             </div>
           </>
@@ -327,15 +352,11 @@ export default function Analytics() {
           {CONFIG.jetSkis.map(jet => (
             <div
               key={jet.id}
-              className={`text-center p-3 rounded-xl ${
-                (jetMap[jet.id] || 0) > 0 ? 'bg-blue-50' : 'bg-gray-50'
-              }`}
+              className={`text-center p-3 rounded-xl ${(jetMap[jet.id] || 0) > 0 ? 'bg-blue-50' : 'bg-gray-50'}`}
             >
               <div className="text-2xl mb-1">🚤</div>
               <div className="font-bold text-gray-800 text-sm">{jet.name}</div>
-              <div className={`font-bold text-lg ${
-                (jetMap[jet.id] || 0) > 0 ? 'text-blue-600' : 'text-gray-400'
-              }`}>
+              <div className={`font-bold text-lg ${(jetMap[jet.id] || 0) > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
                 {jetMap[jet.id] || 0}
               </div>
               <div className="text-gray-400 text-xs">sortie(s)</div>
@@ -347,6 +368,7 @@ export default function Analytics() {
       {/* ── Paiements ── */}
       <div className="bg-white rounded-2xl border p-5 shadow-sm">
         <h3 className="font-bold text-gray-800 mb-4">💳 CA par mode de paiement</h3>
+        <p className="text-xs text-gray-400 mb-3">Locations + Parkings</p>
         <div className="space-y-2">
           {CONFIG.paymentMethods.map(method => {
             const amount = payMap[method] || 0
