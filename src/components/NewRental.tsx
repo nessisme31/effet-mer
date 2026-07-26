@@ -7,7 +7,7 @@ import Step2Client from './steps/Step2Client'
 import Step3Recap from './steps/Step3Recap'
 import Step4Contract from './steps/Step4Contract'
 import Step5Payment from './steps/Step5Payment'
-import StepJetSkiAssign, { JetSlot } from './steps/StepJetSkiAssign'
+
 import StepScheduleMulti from './steps/StepScheduleMulti'
 
 interface Props {
@@ -112,7 +112,13 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
       price: formData.finalTTC,
       discount: formData.discount,
       price_ht: ht,
-      jet_ski_id: formData.jetSkiIds.length > 0 ? formData.jetSkiIds.join(',') : null,
+      // jet_ski_id calculé depuis les items actifs du panier
+      jet_ski_id: (() => {
+        const ids = (formData.cart as any[])
+          .filter(i => i.assignedJetSkiId)
+          .map(i => i.assignedJetSkiId as string)
+        return ids.length > 0 ? ids.join(',') : null
+      })(),
       payment_method: formData.paymentMethod,
       signature: formData.signature,
       contract_number: contractNumber,
@@ -164,22 +170,7 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
     setStep(6)
   }
 
-  // Réception des jets assignés (un ID par slot)
-  const handleStep6JetSki = (jetSkiIds: string[]) => {
-    setFormData(prev => ({ ...prev, jetSkiIds }))
-    setStep(7)
-  }
 
-  // Génère la liste des slots jet ski depuis le panier (un slot par jet réservé)
-  const jetSlots: JetSlot[] = formData.cart
-    .filter(item => item.activity.requiresJetSki)
-    .flatMap((item, i) =>
-      Array.from({ length: item.numberOfPersons ?? 1 }, (_, j) => ({
-        index: i * 10 + j,
-        label: `${item.activity.name} · ${item.activity.duration}`,
-        jetType: (item.activity.jetType ?? 'VX') as 'VX' | 'FX',
-      }))
-    )
 
   // File d'attente jet ski
   const handleAddToWaitingList = async (jetSkiId: string) => {
@@ -378,17 +369,7 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
           />
         )}
 
-        {/* Étape 6 : Attribution individuelle des jets ski */}
-        {step === 6 && hasJetSki && (
-          <StepJetSkiAssign
-            slots={jetSlots}
-            clientFirstname={formData.clientFirstname}
-            clientName={formData.clientName}
-            onNext={handleStep6JetSki}
-            onBack={() => setStep(5)}
-            onAddToWaitingList={handleAddToWaitingList}
-          />
-        )}
+
 
         {step === 6 && !hasJetSki && (
           <StepScheduleMulti
