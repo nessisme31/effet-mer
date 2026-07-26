@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { CONFIG, ActivityConfig } from '../../config'
-import { CartItem } from '../../types'
 
 interface Props {
-  initialCart?: CartItem[]
-  onNext: (cart: CartItem[]) => void
+  onNext: (activity: ActivityConfig, subtype?: string, quantity?: number) => void
+  initialActivity?: ActivityConfig | null
+  initialSubtype?: string
+  initialQuantity?: number
 }
 
 const ICONS: Record<string, string> = {
@@ -18,63 +19,30 @@ const ICONS: Record<string, string> = {
   'Scooter sous-marin': '🤿',
 }
 
-export default function Step1Activity({ initialCart = [], onNext }: Props) {
-  const [cart, setCart] = useState<CartItem[]>(initialCart)
-  // Pour la bouée uniquement (nécessite choix du type + personnes)
-  const [pendingBouee, setPendingBouee] = useState<ActivityConfig | null>(null)
-  const [pendingSubtype, setPendingSubtype] = useState('')
-  const [pendingPersons, setPendingPersons] = useState(1)
-  // Feedback visuel quand on ajoute au panier
-  const [lastAdded, setLastAdded] = useState<string | null>(null)
+export default function Step1Activity({ onNext, initialActivity, initialSubtype, initialQuantity }: Props) {
+  const [selectedActivity, setSelectedActivity] = useState<ActivityConfig | null>(initialActivity ?? null)
+  const [selectedSubtype, setSelectedSubtype] = useState(initialSubtype ?? '')
+  const [jetQuantity, setJetQuantity] = useState(initialQuantity ?? 1)
 
+  // Group by activity name
   const grouped = CONFIG.activities.reduce((acc, act) => {
     if (!acc[act.name]) acc[act.name] = []
     acc[act.name].push(act)
     return acc
   }, {} as Record<string, ActivityConfig[]>)
 
-  const cartTotal = cart.reduce((sum, item) => sum + item.itemPrice, 0)
+  const isJetSki = selectedActivity?.requiresJetSki ?? false
+  const maxJets = isJetSki
+    ? CONFIG.jetSkis.filter(j => j.type === selectedActivity?.jetType).length
+    : 1
 
-  // Ajouter directement au panier (pour activités sans sous-type)
-  const addDirectToCart = (activity: ActivityConfig) => {
-    const newItem: CartItem = {
-      cartId: Math.random().toString(36).substr(2, 9),
-      activity,
-      itemPrice: activity.price,
-    }
-    setCart(prev => [...prev, newItem])
-    // Feedback visuel 1.5 secondes
-    setLastAdded(activity.id)
-    setTimeout(() => setLastAdded(null), 1500)
-  }
-
-  // Ajouter la bouée au panier après sélection du type et des personnes
-  const addBoueeToCart = () => {
-    if (!pendingBouee || !pendingSubtype) return
-    const itemPrice = pendingBouee.price * pendingPersons
-    const newItem: CartItem = {
-      cartId: Math.random().toString(36).substr(2, 9),
-      activity: pendingBouee,
-      subtype: pendingSubtype,
-      numberOfPersons: pendingPersons,
-      itemPrice,
-    }
-    setCart(prev => [...prev, newItem])
-    setPendingBouee(null)
-    setPendingSubtype('')
-    setPendingPersons(1)
-  }
-
-  const removeFromCart = (cartId: string) => {
-    setCart(prev => prev.filter(item => item.cartId !== cartId))
-  }
+  const canContinue = selectedActivity && (!selectedActivity.hasSubtype || selectedSubtype)
+  const totalPrice = selectedActivity ? selectedActivity.price * (isJetSki ? jetQuantity : 1) : 0
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-gray-800 mb-1">Étape 1 — Panier d'activités</h2>
-      <p className="text-gray-500 text-sm mb-5">Cliquez sur une activité pour l'ajouter au panier</p>
+      <h2 className="text-xl font-bold text-gray-800 mb-6">Étape 1 — Choisir une activité</h2>
 
-      {/* Activity list */}
       <div className="space-y-3">
         {Object.entries(grouped).map(([name, variants]) => (
           <div key={name} className="border border-gray-200 rounded-2xl overflow-hidden">
@@ -83,170 +51,104 @@ export default function Step1Activity({ initialCart = [], onNext }: Props) {
               <span className="font-semibold text-gray-700">{name}</span>
             </div>
             <div className="p-3 grid grid-cols-2 gap-2">
-              {variants.map(activity => {
-                const justAdded = lastAdded === activity.id
-                return (
-                  <button
-                    key={activity.id}
-                    onClick={() => {
-                      if (activity.hasSubtype) {
-                        // Bouée → ouvrir le panel de sélection
-                        setPendingBouee(activity)
-                        setPendingSubtype('')
-                        setPendingPersons(1)
-                      } else {
-                        // Toutes les autres → ajout direct dans le panier
-                        addDirectToCart(activity)
-                      }
-                    }}
-                    className={`p-3 rounded-xl border-2 text-left transition-all relative ${
-                      justAdded
-                        ? 'border-green-500 bg-green-50 scale-95'
-                        : pendingBouee?.id === activity.id
-                        ? 'border-orange-400 bg-orange-50'
-                        : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/30 active:scale-95'
-                    }`}
-                  >
-                    {justAdded && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-green-50 rounded-xl">
-                        <span className="text-green-600 font-bold text-sm">✅ Ajouté !</span>
-                      </div>
-                    )}
-                    <div className="font-medium text-gray-700 text-sm">{activity.duration}</div>
-                    <div className="text-blue-700 font-bold mt-0.5">
-                      {activity.price.toLocaleString()} {CONFIG.currency}
-                      {activity.hasSubtype && (
-                        <span className="text-xs font-normal text-gray-500"> /pers.</span>
-                      )}
-                    </div>
-                  </button>
-                )
-              })}
+              {variants.map(activity => (
+                <button
+                  key={activity.id}
+                  onClick={() => {
+                    setSelectedActivity(activity)
+                    setSelectedSubtype('')
+                    setJetQuantity(1)
+                  }}
+                  className={`p-3 rounded-xl border-2 text-left transition-all ${
+                    selectedActivity?.id === activity.id
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/30'
+                  }`}
+                >
+                  <div className="font-medium text-gray-700 text-sm">{activity.duration}</div>
+                  <div className="text-blue-700 font-bold mt-0.5">
+                    {activity.price.toLocaleString()} {CONFIG.currency}
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
         ))}
       </div>
 
-      {/* Panel bouée (uniquement pour Bouée Tractée) */}
-      {pendingBouee && (
-        <div className="mt-4 p-4 bg-orange-50 rounded-2xl border-2 border-orange-300">
-          <p className="font-semibold text-orange-800 mb-3">
-            🔵 {pendingBouee.name} — {pendingBouee.duration}
-          </p>
+      {/* ── Quantity selector for Jet Ski ── */}
+      {isJetSki && selectedActivity && (
+        <div className="mt-4 p-4 bg-blue-50 rounded-2xl border border-blue-200">
+          <p className="font-semibold text-blue-800 mb-3">🚤 Combien de jets skis ?</p>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setJetQuantity(q => Math.max(1, q - 1))}
+              className="w-10 h-10 rounded-full border-2 border-blue-300 bg-white text-blue-700 font-bold text-xl hover:bg-blue-100 transition-colors"
+            >
+              −
+            </button>
+            <span className="text-3xl font-bold text-blue-800 w-8 text-center">{jetQuantity}</span>
+            <button
+              onClick={() => setJetQuantity(q => Math.min(maxJets, q + 1))}
+              className="w-10 h-10 rounded-full border-2 border-blue-300 bg-white text-blue-700 font-bold text-xl hover:bg-blue-100 transition-colors"
+            >
+              +
+            </button>
+            <span className="text-gray-400 text-sm ml-1">/ {maxJets} max ({selectedActivity.jetType})</span>
+          </div>
+          {jetQuantity > 1 && (
+            <p className="text-blue-600 text-sm mt-3">
+              💡 Total : <strong>{totalPrice.toLocaleString()} {CONFIG.currency}</strong>
+              <span className="text-blue-400 ml-2">({jetQuantity} × {selectedActivity.price.toLocaleString()} {CONFIG.currency})</span>
+            </p>
+          )}
+        </div>
+      )}
 
-          {/* Sous-type */}
-          <p className="text-sm font-medium text-orange-700 mb-2">Type de bouée :</p>
-          <div className="grid grid-cols-2 gap-2 mb-3">
+      {/* ── Subtype selection for Bouée ── */}
+      {selectedActivity?.hasSubtype && (
+        <div className="mt-4 p-4 bg-orange-50 rounded-2xl border border-orange-200">
+          <p className="font-semibold text-orange-800 mb-3">🔵 Type de bouée :</p>
+          <div className="grid grid-cols-2 gap-2">
             {CONFIG.boueeSubtypes.map(subtype => (
               <button
                 key={subtype}
-                onClick={() => setPendingSubtype(subtype)}
-                className={`py-2.5 px-3 rounded-xl border-2 font-medium text-sm transition-all ${
-                  pendingSubtype === subtype
+                onClick={() => setSelectedSubtype(subtype)}
+                className={`py-2.5 px-4 rounded-xl border-2 font-medium text-sm transition-all ${
+                  selectedSubtype === subtype
                     ? 'border-orange-500 bg-orange-100 text-orange-800'
-                    : 'border-gray-200 bg-white hover:border-orange-300 text-gray-700'
+                    : 'border-gray-200 hover:border-orange-300 text-gray-700 bg-white'
                 }`}
               >
                 {subtype}
               </button>
             ))}
           </div>
-
-          {/* Nombre de personnes */}
-          {pendingSubtype && (
-            <div className="mb-3">
-              <p className="text-sm font-medium text-orange-700 mb-2">👥 Nombre de personnes :</p>
-              <div className="grid grid-cols-6 gap-1.5">
-                {[1, 2, 3, 4, 5, 6].map(n => (
-                  <button
-                    key={n}
-                    onClick={() => setPendingPersons(n)}
-                    className={`py-2.5 rounded-xl border-2 font-bold text-base transition-all ${
-                      pendingPersons === n
-                        ? 'border-orange-500 bg-orange-500 text-white shadow-md'
-                        : 'border-orange-200 bg-white text-orange-700 hover:border-orange-400'
-                    }`}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-              <p className="text-orange-600 text-sm mt-2 text-center font-medium">
-                {pendingBouee.price.toLocaleString()} × {pendingPersons} pers. ={' '}
-                <strong>{(pendingBouee.price * pendingPersons).toLocaleString()} {CONFIG.currency}</strong>
-              </p>
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            <button
-              onClick={() => setPendingBouee(null)}
-              className="flex-1 bg-white border border-gray-300 text-gray-600 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50"
-            >
-              Annuler
-            </button>
-            <button
-              onClick={addBoueeToCart}
-              disabled={!pendingSubtype}
-              className="flex-1 bg-orange-500 text-white py-2.5 rounded-xl text-sm font-bold disabled:opacity-40 hover:bg-orange-600 transition-colors"
-            >
-              ➕ Ajouter au panier
-            </button>
-          </div>
         </div>
       )}
 
-      {/* Panier */}
-      {cart.length > 0 && (
+      {/* ── Summary ── */}
+      {selectedActivity && (
         <div className="mt-4 p-4 bg-green-50 rounded-2xl border border-green-200">
-          <p className="font-semibold text-green-800 mb-3">
-            🛒 Panier ({cart.length} article{cart.length > 1 ? 's' : ''})
+          <p className="text-green-800 font-medium">
+            ✅ {selectedActivity.name}
+            {selectedSubtype && ` — ${selectedSubtype}`}
+            {isJetSki && jetQuantity > 1 && ` × ${jetQuantity}`}
+            {' · '}{selectedActivity.duration}
+            {' · '}<strong>{totalPrice.toLocaleString()} {CONFIG.currency}</strong>
           </p>
-          <div className="space-y-2 mb-3">
-            {cart.map(item => (
-              <div
-                key={item.cartId}
-                className="flex items-center justify-between bg-white rounded-xl px-3 py-2.5 border border-green-200"
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-800 text-sm truncate">
-                    {item.activity.name}
-                    {item.subtype && ` — ${item.subtype}`}
-                    {item.numberOfPersons && item.numberOfPersons > 1 && ` (${item.numberOfPersons} pers.)`}
-                  </p>
-                  <p className="text-gray-400 text-xs">{item.activity.duration}</p>
-                </div>
-                <div className="flex items-center gap-2 ml-2">
-                  <span className="font-bold text-blue-700 text-sm whitespace-nowrap">
-                    {item.itemPrice.toLocaleString()} {CONFIG.currency}
-                  </span>
-                  <button
-                    onClick={() => removeFromCart(item.cartId)}
-                    className="text-red-400 hover:text-red-600 text-lg w-6 h-6 flex items-center justify-center rounded-full hover:bg-red-50"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="flex justify-between items-center pt-2 border-t border-green-300">
-            <span className="font-bold text-green-800">Total</span>
-            <span className="font-bold text-blue-700 text-xl">
-              {cartTotal.toLocaleString()} {CONFIG.currency}
-            </span>
-          </div>
         </div>
       )}
 
       <button
-        onClick={() => cart.length > 0 && onNext(cart)}
-        disabled={cart.length === 0}
+        onClick={() =>
+          canContinue &&
+          onNext(selectedActivity!, selectedSubtype || undefined, isJetSki ? jetQuantity : undefined)
+        }
+        disabled={!canContinue}
         className="mt-6 w-full bg-blue-700 text-white py-3.5 rounded-2xl font-semibold disabled:opacity-40 hover:bg-blue-800 transition-colors text-lg"
       >
-        {cart.length === 0
-          ? 'Sélectionnez une activité'
-          : `Continuer → (${cart.length} activité${cart.length > 1 ? 's' : ''})`}
+        Suivant →
       </button>
     </div>
   )
