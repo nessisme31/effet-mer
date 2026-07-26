@@ -7,60 +7,52 @@ import ActiveRentals from './ActiveRentals'
 import Archives from './Archives'
 import Clients from './Clients'
 import Analytics from './Analytics'
-import DraftRentals from './DraftRentals'
 
 interface Props {
   currentPage: Page
   setCurrentPage: (page: Page) => void
 }
 
-// ─── État de reprise d'un brouillon ──────────────────────────
-interface ResumeState {
-  draftId: string
-  formData: Record<string, unknown>
-  step: number
-}
-
 const navItems: { id: Page; label: string }[] = [
   { id: 'active',     label: '🚤 Locations actives' },
   { id: 'new-rental', label: '➕ Nouvelle location' },
-  { id: 'drafts',     label: '⏸️ En pause' },
   { id: 'archives',   label: '📁 Archives' },
   { id: 'clients',    label: '👥 Clients' },
   { id: 'dashboard',  label: '📊 Tableau de bord' },
 ]
 
 export default function Layout({ currentPage, setCurrentPage }: Props) {
-  const [resumeState, setResumeState] = useState<ResumeState | null>(null)
+  // ── État de l'édition ────────────────────────────────────
+  const [editRentalId, setEditRentalId] = useState<string | null>(null)
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
   }
 
-  // Reprendre un brouillon : on restaure les données et on navigue vers "new-rental"
-  const handleResume = (draftId: string, formData: Record<string, unknown>, step: number) => {
-    setResumeState({ draftId, formData, step })
+  // Ouvrir une location en mode édition
+  const handleEditRental = (id: string) => {
+    setEditRentalId(id)
     setCurrentPage('new-rental')
   }
 
-  // Quand NewRental est complété (location finalisée)
-  const handleNewRentalComplete = () => {
-    setResumeState(null)
-    setCurrentPage('active')
-  }
-
-  // Quand NewRental est mis en pause
-  const handlePause = () => {
-    setResumeState(null)
-    setCurrentPage('active')
-  }
-
-  // Quand on navigue ailleurs, effacer l'état de reprise
-  const handleNavigation = (page: Page) => {
+  // Quand on navigue ailleurs, effacer l'id d'édition
+  const handleNav = (page: Page) => {
     if (page !== 'new-rental') {
-      setResumeState(null)
+      setEditRentalId(null)
     }
     setCurrentPage(page)
+  }
+
+  // Quand la nouvelle location / édition est terminée
+  const handleRentalComplete = () => {
+    setEditRentalId(null)
+    setCurrentPage('active')
+  }
+
+  // Nouvelle location (sans édition)
+  const handleNewRental = () => {
+    setEditRentalId(null)
+    setCurrentPage('new-rental')
   }
 
   return (
@@ -77,60 +69,53 @@ export default function Layout({ currentPage, setCurrentPage }: Props) {
           </div>
           <button
             onClick={handleLogout}
-            className="text-blue-300 hover:text-white text-sm transition-colors flex items-center gap-1"
+            className="text-blue-300 hover:text-white text-sm transition-colors"
           >
-            <span>🚪</span> Déconnexion
+            Déconnexion
           </button>
         </div>
       </header>
 
-      {/* Navigation */}
-      <nav className="bg-blue-700 shadow">
-        <div className="max-w-5xl mx-auto px-2">
-          <div className="flex overflow-x-auto scrollbar-hide">
+      {/* Nav */}
+      <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10">
+        <div className="max-w-5xl mx-auto px-4">
+          <div className="flex overflow-x-auto">
             {navItems.map(item => (
               <button
                 key={item.id}
-                onClick={() => handleNavigation(item.id)}
-                className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-all ${
+                onClick={() => handleNav(item.id)}
+                className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                   currentPage === item.id
-                    ? 'border-white text-white'
-                    : 'border-transparent text-blue-200 hover:text-white hover:border-blue-300'
+                    ? 'border-blue-700 text-blue-700'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                {item.label}
+                {item.id === 'new-rental' && editRentalId ? '✏️ Modifier location' : item.label}
               </button>
             ))}
           </div>
         </div>
       </nav>
 
-      {/* Main Content */}
+      {/* Content */}
       <main className="max-w-5xl mx-auto px-4 py-6">
-
         {currentPage === 'active' && (
-          <ActiveRentals onNewRental={() => setCurrentPage('new-rental')} />
-        )}
-
-        {currentPage === 'new-rental' && (
-          <NewRental
-            onComplete={handleNewRentalComplete}
-            onPause={handlePause}
-            // Si on reprend un brouillon, passer les données sauvegardées
-            initialFormData={resumeState?.formData as Parameters<typeof NewRental>[0]['initialFormData']}
-            initialStep={resumeState?.step}
-            draftId={resumeState?.draftId}
+          <ActiveRentals
+            onNewRental={handleNewRental}
+            onEditRental={handleEditRental}
           />
         )}
-
-        {currentPage === 'drafts' && (
-          <DraftRentals onResume={handleResume} />
+        {currentPage === 'new-rental' && (
+          <NewRental
+            onComplete={handleRentalComplete}
+            rentalId={editRentalId ?? undefined}
+          />
         )}
-
-        {currentPage === 'archives' && <Archives />}
-        {currentPage === 'clients'  && <Clients />}
+        {currentPage === 'archives' && (
+          <Archives onEditRental={handleEditRental} />
+        )}
+        {currentPage === 'clients' && <Clients />}
         {currentPage === 'dashboard' && <Analytics />}
-
       </main>
     </div>
   )
