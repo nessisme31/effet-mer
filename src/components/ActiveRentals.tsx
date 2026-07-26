@@ -184,12 +184,12 @@ export default function ActiveRentals({ onNewRental, onEditRental }: Props) {
         <>
           <div className="grid gap-4 mb-6">
             {rentals.map(rental => {
-              const isOverdue = new Date(rental.end_time) < new Date()
+              const isOverdue = new Date(rental.end_time ?? '') < new Date()
               const jetIds = rental.jet_ski_id
                 ? rental.jet_ski_id.split(',').map(s => s.trim())
                 : []
               const waitersForJet = jetIds.length > 0
-                ? waiting.filter(w => jetIds.includes(w.jet_ski_id))
+                ? waiting.filter(w => jetIds.includes(w.jet_ski_id ?? ''))
                 : []
 
               return (
@@ -256,10 +256,10 @@ export default function ActiveRentals({ onNewRental, onEditRental }: Props) {
                         HORAIRES
                       </p>
                       <p className={`font-bold ${isOverdue ? 'text-red-800' : 'text-green-800'}`}>
-                        {fmt(rental.start_time)} → {fmt(rental.end_time)}
+                        {fmt(rental.start_time ?? '')} → {fmt(rental.end_time ?? '')}
                       </p>
                       <p className={`text-xs mt-1 ${isOverdue ? 'text-red-600' : 'text-green-600'}`}>
-                        Retour à {fmt(rental.end_time)}
+                        Retour à {fmt(rental.end_time ?? '')}
                       </p>
                     </div>
                   </div>
