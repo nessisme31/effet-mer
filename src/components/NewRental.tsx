@@ -280,10 +280,24 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
   }
 
   // ── Réservation pour plus tard ─────────────────────────────
-  const handleReservation = async (reservationTime: string, preferredJetId: string) => {
+  // jetAssignments = { [cartId]: jetSkiId } — un jet par activité jet ski
+  const handleReservation = async (reservationTime: string, jetAssignments: Record<string, string>) => {
     setIsSubmitting(true)
     try {
       const ht = Math.round(formData.finalTTC / 1.2)
+
+      // Injecter le jet souhaité dans chaque cart_item
+      const cartWithJets = formData.cart.map(item => ({
+        ...item,
+        assignedJetSkiId: item.activity.requiresJetSki
+          ? (jetAssignments[item.cartId] || undefined)
+          : item.assignedJetSkiId,
+      }))
+
+      // jet_ski_id global = liste de tous les jets souhaités, séparés par virgule
+      const allJetIds = Object.values(jetAssignments).filter(Boolean)
+      const jetSkiId = allJetIds.length > 0 ? allJetIds.join(',') : null
+
       const { error } = await supabase.from('rentals').insert({
         client_name:      formData.clientName.toUpperCase(),
         client_firstname: formData.clientFirstname,
@@ -292,13 +306,13 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
         client_origin:    formData.clientOrigin || null,
         activity_name:    cartSummary || formData.cart[0]?.activity.name,
         activity_id:      formData.cart[0]?.activity.id ?? null,
-        cart_items:       formData.cart,
+        cart_items:       cartWithJets,   // avec jets assignés
         duration:         formData.cart[0]?.activity.duration ?? '',
         duration_minutes: formData.cart[0]?.activity.durationMinutes ?? 0,
         price:            formData.finalTTC,
         discount:         formData.discount,
         price_ht:         ht,
-        jet_ski_id:       preferredJetId || null,   // souhaité, non bloqué
+        jet_ski_id:       jetSkiId,       // souhaités, non bloqués
         payment_method:   formData.paymentMethod,
         signature:        formData.signature,
         contract_number:  formData.contractNumber,
