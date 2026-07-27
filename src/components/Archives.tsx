@@ -44,7 +44,9 @@ export default function Archives() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [dateFilter, setDateFilter] = useState('')
-  const [editingRental, setEditingRental] = useState<Rental | null>(null)
+  const [editingRental,   setEditingRental]   = useState<Rental | null>(null)
+  const [confirmDelete,   setConfirmDelete]   = useState<Rental | null>(null)
+  const [deleting,        setDeleting]        = useState(false)
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -87,6 +89,29 @@ export default function Archives() {
   const totalCA = filtered.reduce((sum, item) => sum + item.data.price, 0)
 
   const totalItems = rentals.length + parkings.length
+
+  const handleDeleteRental = async (rental: Rental) => {
+    setDeleting(true)
+    try {
+      const { error } = await supabase
+        .from('rentals')
+        .delete()
+        .eq('id', rental.id)
+      if (error) throw error
+      setConfirmDelete(null)
+      // Rafraîchir
+      const [r, p] = await Promise.all([
+        supabase.from('rentals').select('*').eq('status', 'archived').order('created_at', { ascending: false }),
+        supabase.from('parkings').select('*').eq('status', 'archived').order('created_at', { ascending: false }),
+      ])
+      setRentals(r.data || [])
+      setParkings(p.data || [])
+    } catch (err) {
+      console.error(err)
+      alert('❌ Erreur lors de la suppression.')
+    }
+    setDeleting(false)
+  }
 
   if (loading) return <div className="text-center py-16 text-gray-400">⏳ Chargement...</div>
 
@@ -185,6 +210,12 @@ export default function Archives() {
                   >
                     ✏️ Modifier
                   </button>
+                  <button
+                    onClick={() => setConfirmDelete(rental)}
+                    className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-red-200"
+                  >
+                    🗑️ Supprimer
+                  </button>
                   {rental.id_photo_url && (
                     <button
                       onClick={() => openIdPhotoSecure(rental.id_photo_url!, `${rental.client_firstname} ${rental.client_name}`)}
@@ -240,6 +271,47 @@ export default function Archives() {
           </div>
         )}
       </div>
+
+      {/* ── Modal double confirmation suppression ──────── */}
+      {confirmDelete && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
+            <div className="text-center mb-5">
+              <div className="text-5xl mb-3">🗑️</div>
+              <h3 className="text-xl font-bold text-gray-800">Supprimer ce contrat ?</h3>
+              <p className="text-gray-500 text-sm mt-2">
+                <strong>{confirmDelete.client_firstname} {confirmDelete.client_name}</strong>
+                <br />
+                {confirmDelete.activity_name} · {confirmDelete.price.toLocaleString()} {CONFIG.currency}
+              </p>
+            </div>
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-5">
+              <p className="text-red-700 text-sm font-semibold text-center">
+                ⚠️ Cette action est irréversible
+              </p>
+              <p className="text-red-500 text-xs text-center mt-1">
+                Le contrat disparaîtra des archives et des statistiques.<br />
+                Le client reste dans l'onglet Clients.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmDelete(null)}
+                className="flex-1 py-3 rounded-2xl bg-gray-100 text-gray-700 font-semibold hover:bg-gray-200 transition-colors"
+              >
+                ✕ Annuler
+              </button>
+              <button
+                onClick={() => handleDeleteRental(confirmDelete)}
+                disabled={deleting}
+                className="flex-1 py-3 rounded-2xl bg-red-600 text-white font-bold hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {deleting ? '⏳ Suppression...' : '🗑️ Oui, supprimer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal modification contrat */}
       {editingRental && (
