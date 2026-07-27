@@ -1,7 +1,66 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { CONFIG } from '../config'
-import { Rental } from '../types'
+import { Rental, CartItem } from '../types'
+
+// ── Couleurs du camembert ──────────────────────────────────
+const PIE_COLORS = [
+  '#3b82f6', '#10b981', '#f59e0b', '#ef4444',
+  '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16',
+  '#f97316', '#6366f1', '#14b8a6', '#e11d48',
+]
+
+// ── Composant Camembert SVG (donut) ───────────────────────
+interface PieSlice { label: string; value: number; count: number }
+
+function PieChart({ data }: { data: PieSlice[] }) {
+  const total = data.reduce((s, d) => s + d.value, 0)
+  if (total === 0) return null
+
+  const SIZE = 200
+  const cx = SIZE / 2
+  const cy = SIZE / 2
+  const R = 80   // rayon externe
+  const r = 46   // rayon interne (trou du donut)
+
+  let angle = -90  // partir du haut
+
+  const slices = data.map((d, i) => {
+    const pct   = d.value / total
+    const sweep = pct * 360
+    const start = angle
+    const end   = angle + sweep
+    angle       = end
+
+    const s = (a: number) => (a * Math.PI) / 180
+    const x1 = cx + R * Math.cos(s(start)), y1 = cy + R * Math.sin(s(start))
+    const x2 = cx + R * Math.cos(s(end)),   y2 = cy + R * Math.sin(s(end))
+    const xi1 = cx + r * Math.cos(s(start)), yi1 = cy + r * Math.sin(s(start))
+    const xi2 = cx + r * Math.cos(s(end)),   yi2 = cy + r * Math.sin(s(end))
+    const large = sweep > 180 ? 1 : 0
+
+    return {
+      d: `M${x1},${y1} A${R},${R} 0 ${large},1 ${x2},${y2} L${xi2},${yi2} A${r},${r} 0 ${large},0 ${xi1},${yi1} Z`,
+      color: PIE_COLORS[i % PIE_COLORS.length],
+      label: d.label,
+    }
+  })
+
+  return (
+    <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
+      {slices.map((s, i) => (
+        <path key={i} d={s.d} fill={s.color} stroke="white" strokeWidth="2" />
+      ))}
+      {/* Centre */}
+      <text x={cx} y={cy - 6} textAnchor="middle" fontSize="16" fontWeight="bold" fill="#1f2937">
+        {data.length}
+      </text>
+      <text x={cx} y={cy + 10} textAnchor="middle" fontSize="10" fill="#6b7280">
+        activités
+      </text>
+    </svg>
+  )
+}
 
 interface ParkingEntry {
   id: string
@@ -67,12 +126,23 @@ export default function Analytics() {
   const todayCount  = todayRentals.length + todayParkings.length
   const monthCount  = monthRentals.length + monthParkings.length
 
-  // ── Activités (locations seulement) ───────────────────────
+  // ── Activités : décomposition individuelle via cart_items ─
   const activityMap = rentals.reduce((acc, r) => {
-    const key = r.activity_name + (r.activity_subtype ? ` — ${r.activity_subtype}` : '')
-    acc[key] = acc[key] || { count: 0, ca: 0 }
-    acc[key].count++
-    acc[key].ca += r.price
+    if (r.cart_items && Array.isArray(r.cart_items) && r.cart_items.length > 0) {
+      // Rentals multi-panier → chaque item individuellement
+      r.cart_items.forEach((item: CartItem) => {
+        const key = item.activity.name + (item.subtype ? ` — ${item.subtype}` : '')
+        acc[key] = acc[key] || { count: 0, ca: 0 }
+        acc[key].count++
+        acc[key].ca += item.itemPrice
+      })
+    } else {
+      // Anciens rentals (sans cart_items) → activité simple
+      const key = r.activity_name + (r.activity_subtype ? ` — ${r.activity_subtype}` : '')
+      acc[key] = acc[key] || { count: 0, ca: 0 }
+      acc[key].count++
+      acc[key].ca += r.price
+    }
     return acc
   }, {} as Record<string, { count: number; ca: number }>)
 
@@ -199,44 +269,79 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* ── CA par activité (locations + parkings) ── */}
+      {/* ── CA par activité (camembert + liste) ── */}
       <div className="bg-white rounded-2xl border p-5 mb-4 shadow-sm">
         <h3 className="font-bold text-gray-800 mb-4">📊 CA par activité</h3>
         {sortedActivities.length === 0 ? (
           <p className="text-gray-400 text-sm text-center py-4">Pas encore de données</p>
         ) : (
-          <div className="space-y-4">
-            {sortedActivities.map(([activity, stats]) => {
-              const pct = caTotal > 0 ? (stats.ca / caTotal * 100) : 0
-              const isParking = activity.startsWith('🅿️')
-              return (
-                <div key={activity}>
-                  <div className="flex justify-between items-start mb-1.5">
-                    <span className={`font-semibold text-sm ${isParking ? 'text-indigo-700' : 'text-gray-700'}`}>
-                      {activity}
-                    </span>
-                    <div className="text-right flex-shrink-0 ml-2">
-                      <span className="font-bold text-gray-800">{stats.ca.toLocaleString()} {CONFIG.currency}</span>
+          <>
+            {/* Camembert + légende */}
+            <div className="flex flex-col items-center mb-5">
+              <PieChart
+                data={sortedActivities.map(([label, stats]) => ({
+                  label,
+                  value: stats.ca,
+                  count: stats.count,
+                }))}
+              />
+              {/* Légende couleurs */}
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 justify-center">
+                {sortedActivities.map(([activity], i) => (
+                  <div key={activity} className="flex items-center gap-1.5">
+                    <div
+                      className="w-3 h-3 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }}
+                    />
+                    <span className="text-xs text-gray-600 max-w-[140px] truncate">{activity}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Liste détaillée */}
+            <div className="space-y-3">
+              {sortedActivities.map(([activity, stats], i) => {
+                const pct = caTotal > 0 ? (stats.ca / caTotal * 100) : 0
+                const isParking = activity.startsWith('🅿️')
+                return (
+                  <div key={activity}>
+                    <div className="flex justify-between items-center mb-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div
+                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }}
+                        />
+                        <span className={`font-medium text-sm truncate ${isParking ? 'text-indigo-700' : 'text-gray-700'}`}>
+                          {activity}
+                        </span>
+                      </div>
+                      <span className="font-bold text-gray-800 ml-2 flex-shrink-0">
+                        {stats.ca.toLocaleString()} {CONFIG.currency}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        isParking ? 'bg-indigo-50 text-indigo-700' : 'bg-blue-50 text-blue-700'
+                      }`}>
+                        🔁 {stats.count} fois
+                      </span>
+                      <span className="text-gray-400 text-xs">{pct.toFixed(1)}%</span>
+                    </div>
+                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-1.5 rounded-full"
+                        style={{
+                          width: `${pct}%`,
+                          backgroundColor: PIE_COLORS[i % PIE_COLORS.length],
+                        }}
+                      />
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 mb-1.5">
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                      isParking ? 'bg-indigo-50 text-indigo-700' : 'bg-blue-50 text-blue-700'
-                    }`}>
-                      🔁 {stats.count} fois
-                    </span>
-                    <span className="text-gray-400 text-xs">{pct.toFixed(1)}% du CA total</span>
-                  </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-2 rounded-full transition-all ${isParking ? 'bg-indigo-500' : 'bg-blue-500'}`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+                )
+              })}
+            </div>
+          </>
         )}
       </div>
 
