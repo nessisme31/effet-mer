@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+
+const DRAFT_KEY = 'newRentalAutoSave'
 import { supabase } from '../lib/supabase'
 import { ContractLanguage, CartItem } from '../types'
 import { ClientData } from './steps/Step2Client'
@@ -68,6 +70,32 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
   const [flowState, setFlowState] = useState<FlowState>('form')
   const [waitingJetId, setWaitingJetId] = useState('')
   const [formData, setFormData] = useState<FormData>({ ...DEFAULT_FORM, ...initialFormData })
+  const [restoredFromCache, setRestoredFromCache] = useState(false)
+
+  // ── Restauration automatique après rechargement ────────────
+  useEffect(() => {
+    // Ne pas restaurer si on reprend depuis un brouillon Supabase
+    if (initialFormData) return
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY)
+      if (!saved) return
+      const { formData: savedForm, step: savedStep } = JSON.parse(saved)
+      if (savedStep > 1 && savedForm) {
+        setFormData(savedForm)
+        setStep(savedStep)
+        setRestoredFromCache(true)
+      }
+    } catch {
+      localStorage.removeItem(DRAFT_KEY)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Sauvegarde automatique à chaque changement ─────────────
+  useEffect(() => {
+    if (step > 1) {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ formData, step }))
+    }
+  }, [formData, step])
 
   const jetItem = formData.cart.find(item => item.activity.requiresJetSki)
 
@@ -242,6 +270,7 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
     setIsSubmitting(true)
     try {
       await saveRental(scheduledCart)
+      localStorage.removeItem(DRAFT_KEY)
       onComplete()
     } catch (err) {
       console.error(err)
@@ -282,6 +311,7 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
       })
       if (error) throw error
       if (draftId) await supabase.from('draft_rentals').delete().eq('id', draftId)
+      localStorage.removeItem(DRAFT_KEY)
       onComplete()
     } catch (err) {
       console.error(err)
@@ -307,6 +337,7 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
       } else {
         await supabase.from('draft_rentals').insert(draftData)
       }
+      localStorage.removeItem(DRAFT_KEY)   // ← on efface le cache local (sauvé dans Supabase)
       onPause()
     } catch (err) {
       console.error(err)
@@ -339,6 +370,26 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
   return (
     <div className="max-w-2xl mx-auto">
       <div className="bg-white rounded-2xl shadow-sm border p-6">
+
+        {/* Bannière restauration après rechargement */}
+        {restoredFromCache && (
+          <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 flex items-center justify-between">
+            <span className="text-blue-700 text-sm">
+              🔄 Formulaire restauré automatiquement après rechargement
+            </span>
+            <button
+              onClick={() => {
+                localStorage.removeItem(DRAFT_KEY)
+                setFormData({ ...DEFAULT_FORM })
+                setStep(1)
+                setRestoredFromCache(false)
+              }}
+              className="text-xs text-blue-500 hover:text-blue-700 underline ml-3"
+            >
+              Recommencer
+            </button>
+          </div>
+        )}
 
         {/* Barre de progression + bouton pause */}
         <div className="mb-8">
