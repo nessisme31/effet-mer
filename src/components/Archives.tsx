@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { CONFIG } from '../config'
 import { Rental } from '../types'
 import { openContractPDF } from '../utils/contractHTML'
+import EditRentalModal from './EditRentalModal'
 
 // Ouvre la photo avec un lien temporaire sécurisé (expire 1h)
 const openIdPhotoSecure = async (filePath: string, clientName: string) => {
@@ -43,6 +44,7 @@ export default function Archives() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [dateFilter, setDateFilter] = useState('')
+  const [editingRental, setEditingRental] = useState<Rental | null>(null)
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -177,6 +179,12 @@ export default function Archives() {
                   >
                     📄 Télécharger le contrat
                   </button>
+                  <button
+                    onClick={() => setEditingRental(rental)}
+                    className="flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 text-orange-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-orange-200"
+                  >
+                    ✏️ Modifier
+                  </button>
                   {rental.id_photo_url && (
                     <button
                       onClick={() => openIdPhotoSecure(rental.id_photo_url!, `${rental.client_firstname} ${rental.client_name}`)}
@@ -232,6 +240,24 @@ export default function Archives() {
           </div>
         )}
       </div>
+
+      {/* Modal modification contrat */}
+      {editingRental && (
+        <EditRentalModal
+          rental={editingRental}
+          onClose={() => setEditingRental(null)}
+          onSaved={async () => {
+            setEditingRental(null)
+            // Recharger les archives
+            const [r, p] = await Promise.all([
+              supabase.from('rentals').select('*').eq('status', 'archived').order('created_at', { ascending: false }),
+              supabase.from('parkings').select('*').eq('status', 'archived').order('created_at', { ascending: false }),
+            ])
+            setRentals(r.data || [])
+            setParkings(p.data || [])
+          }}
+        />
+      )}
     </div>
   )
 }
