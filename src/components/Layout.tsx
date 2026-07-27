@@ -10,6 +10,7 @@ import Analytics from './Analytics'
 import DraftRentals from './DraftRentals'
 import Parking from './Parking'
 import Fleet from './Fleet'
+import Reservations from './Reservations'
 
 interface Props {
   currentPage: Page
@@ -23,14 +24,15 @@ interface ResumeState {
 }
 
 const navItems: { id: Page; label: string }[] = [
-  { id: 'fleet',      label: '🛥️ Ma Flotte' },
-  { id: 'active',     label: '🚤 Locations actives' },
-  { id: 'new-rental', label: '➕ Nouvelle' },
-  { id: 'drafts',     label: '⏸️ En pause' },
-  { id: 'parking',    label: '🅿️ Parking' },
-  { id: 'archives',   label: '📁 Archives' },
-  { id: 'clients',    label: '👥 Clients' },
-  { id: 'dashboard',  label: '📊 Statistiques' },
+  { id: 'fleet',        label: '🛥️ Ma Flotte' },
+  { id: 'active',       label: '🚤 Locations actives' },
+  { id: 'new-rental',   label: '➕ Nouvelle' },
+  { id: 'drafts',       label: '⏸️ En pause' },
+  { id: 'reservations', label: '📅 Réservations' },
+  { id: 'parking',      label: '🅿️ Parking' },
+  { id: 'archives',     label: '📁 Archives' },
+  { id: 'clients',      label: '👥 Clients' },
+  { id: 'dashboard',    label: '📊 Statistiques' },
 ]
 
 export default function Layout({ currentPage, setCurrentPage }: Props) {
@@ -145,8 +147,9 @@ export default function Layout({ currentPage, setCurrentPage }: Props) {
         )}
 
         {currentPage === 'drafts'    && <DraftRentals onResume={handleResume} />}
-        {currentPage === 'fleet'     && <Fleet />}
-        {currentPage === 'parking'   && <Parking />}
+        {currentPage === 'fleet'        && <Fleet />}
+        {currentPage === 'reservations' && <Reservations />}
+        {currentPage === 'parking'      && <Parking />}
         {currentPage === 'archives'  && <Archives />}
         {currentPage === 'clients'   && <Clients />}
         {currentPage === 'dashboard' && <Analytics />}
