@@ -40,10 +40,27 @@ export default function Fleet() {
     const map: Record<string, ActiveRental> = {}
     data?.forEach(r => {
       if (r.jet_ski_id) {
-        // Un jet peut avoir plusieurs IDs (ex: "VX4,VX5") — on décompose
         const ids = r.jet_ski_id.split(',').map((s: string) => s.trim()).filter(Boolean)
         ids.forEach((id: string) => {
-          map[id] = r
+          // ✅ Chercher l'item spécifique à ce jet dans cart_items
+          const item = r.cart_items?.find(
+            (ci: { assignedJetSkiId?: string; itemStatus?: string }) =>
+              ci.assignedJetSkiId === id && ci.itemStatus !== 'returned'
+          )
+          if (item) {
+            // Utiliser les horaires propres à cet item
+            map[id] = {
+              ...r,
+              start_time:        item.itemStartTime  || r.start_time,
+              end_time:          item.itemEndTime    || r.end_time,
+              activity_name:     item.activity?.name ?? r.activity_name,
+              activity_subtype:  item.subtype        ?? r.activity_subtype,
+              duration:          item.activity?.duration ?? r.duration,
+            }
+          } else {
+            // Fallback : rental sans cart_items (anciens rentals)
+            map[id] = r
+          }
         })
       }
     })
