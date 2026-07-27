@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { CONFIG } from '../config'
 import { supabase } from '../lib/supabase'
 import { Page } from '../App'
@@ -35,6 +35,20 @@ const navItems: { id: Page; label: string }[] = [
 
 export default function Layout({ currentPage, setCurrentPage }: Props) {
   const [resumeState, setResumeState] = useState<ResumeState | null>(null)
+  const [draftCount, setDraftCount] = useState(0)
+
+  // Surveille le nombre de brouillons en temps réel
+  useEffect(() => {
+    const fetchDrafts = async () => {
+      const { count } = await supabase
+        .from('draft_rentals')
+        .select('*', { count: 'exact', head: true })
+      setDraftCount(count ?? 0)
+    }
+    fetchDrafts()
+    const interval = setInterval(fetchDrafts, 30000)
+    return () => clearInterval(interval)
+  }, [])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -85,19 +99,30 @@ export default function Layout({ currentPage, setCurrentPage }: Props) {
       <nav className="bg-blue-700 shadow">
         <div className="max-w-5xl mx-auto px-2">
           <div className="flex overflow-x-auto scrollbar-hide">
-            {navItems.map(item => (
-              <button
-                key={item.id}
-                onClick={() => handleNavigation(item.id)}
-                className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-all ${
-                  currentPage === item.id
-                    ? 'border-white text-white'
-                    : 'border-transparent text-blue-200 hover:text-white hover:border-blue-300'
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
+            {navItems.map(item => {
+              const isDrafts = item.id === 'drafts'
+              const hasDrafts = isDrafts && draftCount > 0
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => handleNavigation(item.id)}
+                  className={`relative px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-all ${
+                    currentPage === item.id
+                      ? 'border-white text-white'
+                      : hasDrafts
+                        ? 'border-transparent text-red-300 hover:text-red-100 hover:border-red-300'
+                        : 'border-transparent text-blue-200 hover:text-white hover:border-blue-300'
+                  }`}
+                >
+                  {item.label}
+                  {hasDrafts && (
+                    <span className="ml-1.5 bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">
+                      {draftCount}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
           </div>
         </div>
       </nav>
