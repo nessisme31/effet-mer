@@ -1,8 +1,8 @@
 import { CONFIG, CONTRACT_TEXTS } from '../config'
 import { Rental } from '../types'
 
-const fmtTime = (iso: string) =>
-  new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+const fmtTime = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '--:--'
 
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
