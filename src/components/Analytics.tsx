@@ -93,14 +93,30 @@ export default function Analytics() {
   const sortedActivities = Object.entries(allActivityMap).sort((a, b) => b[1].ca - a[1].ca)
   const topActivity = Object.entries(activityMap).sort((a, b) => b[1].ca - a[1].ca)[0]
 
-  // ── Jet skis ───────────────────────────────────────────────
+  // ── Jet skis : sorties + heures totales ───────────────────
   const jetMap = rentals
     .filter(r => r.jet_ski_id)
     .reduce((acc, r) => {
       const ids = (r.jet_ski_id || '').split(',').map(s => s.trim()).filter(Boolean)
-      ids.forEach(id => { acc[id] = (acc[id] || 0) + 1 })
+      // Minutes de cette location
+      const mins = (r.start_time && r.end_time)
+        ? Math.max(0, (new Date(r.end_time).getTime() - new Date(r.start_time).getTime()) / 60000)
+        : 0
+      ids.forEach(id => {
+        if (!acc[id]) acc[id] = { count: 0, minutes: 0 }
+        acc[id].count++
+        acc[id].minutes += mins
+      })
       return acc
-    }, {} as Record<string, number>)
+    }, {} as Record<string, { count: number; minutes: number }>)
+
+  const fmtHours = (minutes: number) => {
+    const h = Math.floor(minutes / 60)
+    const m = Math.round(minutes % 60)
+    if (h === 0) return `${m} min`
+    if (m === 0) return `${h}h00`
+    return `${h}h${String(m).padStart(2, '0')}`
+  }
 
   // ── Paiements (locations + parkings) ──────────────────────
   const payMap: Record<string, number> = {}
@@ -349,19 +365,27 @@ export default function Analytics() {
       <div className="bg-white rounded-2xl border p-5 mb-4 shadow-sm">
         <h3 className="font-bold text-gray-800 mb-4">🚤 Utilisation des jets skis</h3>
         <div className="grid grid-cols-4 gap-2">
-          {CONFIG.jetSkis.map(jet => (
-            <div
-              key={jet.id}
-              className={`text-center p-3 rounded-xl ${(jetMap[jet.id] || 0) > 0 ? 'bg-blue-50' : 'bg-gray-50'}`}
-            >
-              <div className="text-2xl mb-1">🚤</div>
-              <div className="font-bold text-gray-800 text-sm">{jet.name}</div>
-              <div className={`font-bold text-lg ${(jetMap[jet.id] || 0) > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
-                {jetMap[jet.id] || 0}
+          {CONFIG.jetSkis.map(jet => {
+            const stats = jetMap[jet.id] || { count: 0, minutes: 0 }
+            return (
+              <div
+                key={jet.id}
+                className={`text-center p-3 rounded-xl ${stats.count > 0 ? 'bg-blue-50' : 'bg-gray-50'}`}
+              >
+                <div className="text-2xl mb-1">🚤</div>
+                <div className="font-bold text-gray-800 text-sm">{jet.name}</div>
+                <div className={`font-bold text-lg ${stats.count > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                  {stats.count}
+                </div>
+                <div className="text-gray-400 text-xs">sortie(s)</div>
+                {stats.minutes > 0 && (
+                  <div className="text-blue-500 text-xs font-semibold mt-1">
+                    ⏱️ {fmtHours(stats.minutes)}
+                  </div>
+                )}
               </div>
-              <div className="text-gray-400 text-xs">sortie(s)</div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
 
