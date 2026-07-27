@@ -36,11 +36,14 @@ export interface Rental {
   contract_number: string
   start_time: string | null
   end_time: string | null
-  status: 'active' | 'archived' | 'pending_jet'
+  status: 'active' | 'archived' | 'pending_jet' | 'reserved'
   created_at: string
   cart_items: CartItem[] | null
   returned_cart_ids: string[] | null
-  id_photo_url: string | null   // ← Photo pièce d'identité (lien signé Supabase Storage)
+  id_photo_url: string | null
+  villa_number: string | null
+  reservation_time: string | null
+  client_origin: string | null
 }
 
 export interface WaitingEntry {
