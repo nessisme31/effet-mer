@@ -250,6 +250,46 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
     setIsSubmitting(false)
   }
 
+  // ── Réservation pour plus tard ─────────────────────────────
+  const handleReservation = async (reservationTime: string, preferredJetId: string) => {
+    setIsSubmitting(true)
+    try {
+      const ht = Math.round(formData.finalTTC / 1.2)
+      const { error } = await supabase.from('rentals').insert({
+        client_name:      formData.clientName.toUpperCase(),
+        client_firstname: formData.clientFirstname,
+        client_phone:     formData.clientPhone,
+        client_id_number: formData.clientIdNumber.toUpperCase(),
+        client_origin:    formData.clientOrigin || null,
+        activity_name:    cartSummary || formData.cart[0]?.activity.name,
+        activity_id:      formData.cart[0]?.activity.id ?? null,
+        cart_items:       formData.cart,
+        duration:         formData.cart[0]?.activity.duration ?? '',
+        duration_minutes: formData.cart[0]?.activity.durationMinutes ?? 0,
+        price:            formData.finalTTC,
+        discount:         formData.discount,
+        price_ht:         ht,
+        jet_ski_id:       preferredJetId || null,   // souhaité, non bloqué
+        payment_method:   formData.paymentMethod,
+        signature:        formData.signature,
+        contract_number:  formData.contractNumber,
+        start_time:       null,
+        end_time:         null,
+        status:           'reserved',
+        reservation_time: reservationTime,
+        returned_cart_ids: [],
+        id_photo_url:     formData.clientIdPhotoUrl || null,
+      })
+      if (error) throw error
+      if (draftId) await supabase.from('draft_rentals').delete().eq('id', draftId)
+      onComplete()
+    } catch (err) {
+      console.error(err)
+      alert('❌ Erreur lors de la réservation.')
+    }
+    setIsSubmitting(false)
+  }
+
   // ─── Pause ────────────────────────────────────────────────
   const handlePause = async () => {
     setIsSavingDraft(true)
@@ -397,6 +437,7 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
           <StepScheduleMulti
             cart={formData.cart}
             onComplete={handleSchedule}
+            onReservation={handleReservation}
             onBack={() => setStep(5)}
             isSubmitting={isSubmitting}
           />
