@@ -120,20 +120,20 @@ export default function Step3Recap({ cart, onNext, onBack, onUpdateCart }: Props
               {CONFIG.activities.map(activity => {
                 // Bouée → sous-types dans CONFIG.boueeSubtypes
                 if (activity.hasSubtype && CONFIG.boueeSubtypes) {
-                  return CONFIG.boueeSubtypes.map((sub: { name: string; price: number }) => (
+                  return CONFIG.boueeSubtypes.map((sub: string) => (
                     <button
-                      key={`${activity.id}-${sub.name}`}
-                      onClick={() => handleAddActivity({ ...activity, price: sub.price }, sub.name)}
+                      key={`${activity.id}-${sub}`}
+                      onClick={() => handleAddActivity(activity, sub)}
                       className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors border-b border-gray-100 last:border-0 flex justify-between items-center"
                     >
                       <div>
                         <p className="text-sm font-medium text-gray-800">
-                          {activity.name} — {sub.name}
+                          {activity.name} — {sub}
                         </p>
                         <p className="text-xs text-gray-400">{activity.duration}</p>
                       </div>
                       <span className="text-sm font-bold text-blue-700 ml-4 flex-shrink-0">
-                        {sub.price.toLocaleString()} {CONFIG.currency}
+                        {activity.price.toLocaleString()} {CONFIG.currency}
                       </span>
                     </button>
                   ))
