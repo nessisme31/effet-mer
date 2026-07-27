@@ -28,7 +28,7 @@ interface ReservationConflict {
 interface Props {
   cart: CartItem[]
   onComplete: (scheduledCart: CartItem[]) => void
-  onReservation: (reservationTime: string, preferredJetId: string) => void
+  onReservation: (reservationTime: string, jetAssignments: Record<string, string>) => void
   onBack: () => void
   isSubmitting: boolean
 }
@@ -53,7 +53,8 @@ export default function StepScheduleMulti({ cart, onComplete, onReservation, onB
   const [resHour, setResHour] = useState(
     `${pad(now.getHours() + 1)}:${pad(now.getMinutes())}`
   )
-  const [resJetId, setResJetId] = useState('')
+  // Un jet par activité jet ski (cartId → jetId)
+  const [resJetIds, setResJetIds] = useState<Record<string, string>>({})
 
   // ── Charger jets occupés + réservations ───────────────────
   useEffect(() => {
@@ -147,7 +148,7 @@ export default function StepScheduleMulti({ cart, onComplete, onReservation, onB
   const handleReservationConfirm = () => {
     const today = new Date().toISOString().slice(0, 10)
     const reservationISO = new Date(`${today}T${resHour}:00`).toISOString()
-    onReservation(reservationISO, resJetId)
+    onReservation(reservationISO, resJetIds)
   }
 
   const resTimeISO = todayAt(`${resHour}:00`)
@@ -389,7 +390,7 @@ export default function StepScheduleMulti({ cart, onComplete, onReservation, onB
           <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 mb-5">
             <p className="font-bold text-blue-800 mb-1">📅 Réservation pour plus tard</p>
             <p className="text-blue-600 text-sm">
-              Le contrat et le paiement sont déjà enregistrés. Le jet ski n'est pas bloqué.
+              Le contrat et le paiement sont déjà enregistrés. Les jets ne sont pas bloqués.
               Vous retrouverez cette réservation dans l'onglet "Réservations".
             </p>
           </div>
@@ -407,28 +408,76 @@ export default function StepScheduleMulti({ cart, onComplete, onReservation, onB
             />
           </div>
 
-          {/* Jet ski souhaité (optionnel) */}
-          <div className="mb-5">
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              🚤 Jet ski souhaité
-              <span className="text-gray-400 font-normal ml-1">(optionnel — pas bloqué)</span>
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {CONFIG.jetSkis.map(jet => (
-                <button
-                  key={jet.id}
-                  onClick={() => setResJetId(resJetId === jet.id ? '' : jet.id)}
-                  className={`px-4 py-2.5 rounded-xl border-2 text-sm font-bold transition-all ${
-                    resJetId === jet.id
-                      ? 'border-blue-500 bg-blue-100 text-blue-800'
-                      : 'border-gray-200 text-gray-600 hover:border-blue-300'
-                  }`}
-                >
-                  🚤 {jet.name}
-                </button>
-              ))}
+          {/* Un sélecteur de jet par activité jet ski */}
+          {cart.filter(item => item.activity.requiresJetSki).length > 0 && (
+            <div className="space-y-4 mb-5">
+              <p className="text-sm font-semibold text-gray-700">
+                🚤 Jets skis souhaités
+                <span className="text-gray-400 font-normal ml-1">(optionnel — non bloqués)</span>
+              </p>
+              {cart.map((item, idx) => {
+                if (!item.activity.requiresJetSki) return null
+                const jetsForType = CONFIG.jetSkis.filter(j => j.type === item.activity.jetType)
+                const selectedJet = resJetIds[item.cartId] ?? ''
+                // Jets déjà pris par d'autres activités dans CETTE réservation
+                const takenByOthers = Object.entries(resJetIds)
+                  .filter(([k]) => k !== item.cartId)
+                  .map(([, v]) => v)
+
+                return (
+                  <div key={item.cartId} className="border border-blue-200 rounded-2xl p-4 bg-white">
+                    <p className="text-sm font-bold text-gray-700 mb-3">
+                      {idx + 1}. {item.activity.name}
+                      {item.subtype ? ` — ${item.subtype}` : ''}
+                      <span className="text-gray-400 font-normal ml-2 text-xs">
+                        {item.activity.duration} · {item.itemPrice.toLocaleString()} {CONFIG.currency}
+                      </span>
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {jetsForType.map(jet => {
+                        const isOccupied = !!occupiedJets[jet.id]
+                        const isTakenByOther = takenByOthers.includes(jet.id)
+                        const isSelected = selectedJet === jet.id
+                        return (
+                          <button
+                            key={jet.id}
+                            onClick={() => setResJetIds(prev => ({
+                              ...prev,
+                              [item.cartId]: prev[item.cartId] === jet.id ? '' : jet.id
+                            }))}
+                            className={`px-3 py-2 rounded-xl border-2 text-sm font-bold transition-all flex items-center gap-1.5 ${
+                              isSelected
+                                ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
+                                : isTakenByOther
+                                ? 'border-orange-200 bg-orange-50 text-orange-500 cursor-not-allowed'
+                                : isOccupied
+                                ? 'border-red-200 bg-red-50 text-red-400'
+                                : 'border-blue-200 bg-white text-blue-700 hover:border-blue-400 hover:bg-blue-50'
+                            }`}
+                          >
+                            <span>{isSelected ? '✅' : isTakenByOther ? '⬆️' : isOccupied ? '❌' : '🚤'}</span>
+                            <span>{jet.name}</span>
+                            {isTakenByOther && <span className="text-orange-400 text-xs font-normal">Pris</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {selectedJet && (
+                      <p className="text-blue-600 text-xs mt-2 font-medium">
+                        ✅ Jet souhaité : <strong>{selectedJet}</strong>
+                        <button
+                          onClick={() => setResJetIds(prev => { const n = { ...prev }; delete n[item.cartId]; return n })}
+                          className="ml-2 text-gray-400 hover:text-red-400 underline"
+                        >
+                          Déselectionner
+                        </button>
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
             </div>
-          </div>
+          )}
 
           {/* Résumé */}
           {canReserve && (
@@ -436,14 +485,22 @@ export default function StepScheduleMulti({ cart, onComplete, onReservation, onB
               <p className="text-blue-800 font-semibold text-center text-lg">
                 📅 Réservation à <strong>{resHour}</strong>
               </p>
-              {resJetId && (
-                <p className="text-blue-600 text-sm text-center mt-1">
-                  🚤 Jet souhaité : <strong>{resJetId}</strong> (disponible pour d'autres locations)
-                </p>
-              )}
-              <p className="text-blue-500 text-xs text-center mt-1">
-                {cart.map(i => i.activity.name).join(' + ')}
-              </p>
+              <div className="mt-2 space-y-1">
+                {cart.map(item => {
+                  const assignedJet = item.activity.requiresJetSki ? resJetIds[item.cartId] : null
+                  return (
+                    <p key={item.cartId} className="text-blue-600 text-sm text-center">
+                      🚤 {item.activity.name}{item.subtype ? ` — ${item.subtype}` : ''}
+                      {assignedJet
+                        ? <span className="font-bold"> → {assignedJet}</span>
+                        : item.activity.requiresJetSki
+                        ? <span className="text-blue-400"> (jet à définir)</span>
+                        : null
+                      }
+                    </p>
+                  )
+                })}
+              </div>
             </div>
           )}
 
