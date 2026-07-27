@@ -169,7 +169,7 @@ export default function Parking() {
               <span className="bg-blue-700 text-white text-xs rounded-full w-5 h-5 inline-flex items-center justify-center mr-2">3</span>
               Mode de paiement
             </p>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-2 mb-2">
               {CONFIG.paymentMethods.map(method => {
                 const icons: Record<string, string> = { 'Espèces': '💵', 'Carte bancaire': '💳', 'Virement': '🏦' }
                 return (
@@ -188,6 +188,18 @@ export default function Parking() {
                 )
               })}
             </div>
+            {/* Bouton En attente de paiement */}
+            <button
+              onClick={() => setPaymentMethod('En attente de paiement')}
+              className={`w-full py-3 rounded-xl border-2 text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+                paymentMethod === 'En attente de paiement'
+                  ? 'border-red-400 bg-red-50 text-red-700'
+                  : 'border-gray-200 text-gray-600 hover:border-red-300 hover:bg-red-50/30'
+              }`}
+            >
+              <span className="text-xl">⏳</span>
+              <span>En attente de paiement</span>
+            </button>
           </div>
 
           {/* Résumé + bouton valider */}
@@ -226,7 +238,11 @@ export default function Parking() {
       ) : (
         <div className="space-y-3">
           {parkings.map(parking => (
-            <div key={parking.id} className="bg-white rounded-2xl border-2 border-gray-100 p-5 shadow-sm hover:shadow-md transition-shadow">
+            <div key={parking.id} className={`rounded-2xl border-2 p-5 shadow-sm hover:shadow-md transition-shadow ${
+              parking.payment_method === 'En attente de paiement'
+                ? 'bg-red-50 border-red-300'
+                : 'bg-white border-gray-100'
+            }`}>
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
@@ -240,7 +256,13 @@ export default function Parking() {
                 </div>
                 <div className="text-right flex-shrink-0 ml-3">
                   <p className="font-bold text-gray-800 text-xl">{parking.price.toLocaleString()} {CONFIG.currency}</p>
-                  <p className="text-gray-400 text-xs">{parking.payment_method}</p>
+                  {parking.payment_method === 'En attente de paiement' ? (
+                    <span className="inline-flex items-center gap-1 bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full mt-1">
+                      ⏳ Paiement en attente
+                    </span>
+                  ) : (
+                    <p className="text-gray-400 text-xs">{parking.payment_method}</p>
+                  )}
                 </div>
               </div>
 
