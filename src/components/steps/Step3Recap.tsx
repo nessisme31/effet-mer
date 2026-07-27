@@ -24,13 +24,11 @@ export default function Step3Recap({ cart, onNext, onBack, onUpdateCart }: Props
 
   // ── Ajouter une activité depuis le menu ───────────────────
   const handleAddActivity = (activity: typeof CONFIG.activities[0], subtype?: string) => {
-    const price = activity.price
     const newItem: CartItem = {
       cartId: uid(),
       activity,
       subtype: subtype || undefined,
-      numberOfPersons: activity.requiresPersonCount ? 1 : undefined,
-      itemPrice: price,
+      itemPrice: activity.price,
     }
     onUpdateCart([...cart, newItem])
     setShowAddPanel(false)
@@ -120,15 +118,12 @@ export default function Step3Recap({ cart, onNext, onBack, onUpdateCart }: Props
             </div>
             <div className="max-h-64 overflow-y-auto">
               {CONFIG.activities.map(activity => {
-                // Si l'activité a des sous-types, afficher un bouton par sous-type
-                if (activity.subtypes && activity.subtypes.length > 0) {
-                  return activity.subtypes.map((sub: { name: string; price: number }) => (
+                // Bouée → sous-types dans CONFIG.boueeSubtypes
+                if (activity.hasSubtype && CONFIG.boueeSubtypes) {
+                  return CONFIG.boueeSubtypes.map((sub: { name: string; price: number }) => (
                     <button
                       key={`${activity.id}-${sub.name}`}
-                      onClick={() => handleAddActivity(
-                        { ...activity, price: sub.price },
-                        sub.name
-                      )}
+                      onClick={() => handleAddActivity({ ...activity, price: sub.price }, sub.name)}
                       className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors border-b border-gray-100 last:border-0 flex justify-between items-center"
                     >
                       <div>
@@ -143,7 +138,7 @@ export default function Step3Recap({ cart, onNext, onBack, onUpdateCart }: Props
                     </button>
                   ))
                 }
-                // Activité simple sans sous-type
+                // Activité simple
                 return (
                   <button
                     key={activity.id}
