@@ -4,6 +4,18 @@ import { CONFIG } from '../config'
 import { Rental } from '../types'
 import { openContractPDF } from '../utils/contractHTML'
 
+// Ouvre la photo avec un lien temporaire sécurisé (expire 1h)
+const openIdPhotoSecure = async (filePath: string, clientName: string) => {
+  const { data, error } = await supabase.storage
+    .from('id-photos')
+    .createSignedUrl(filePath, 3600)
+  if (error || !data?.signedUrl) {
+    alert('❌ Impossible de charger la photo.')
+    return
+  }
+  window.open(data.signedUrl, '_blank')
+}
+
 interface ParkingEntry {
   id: string
   type: string
@@ -158,13 +170,21 @@ export default function Archives() {
                   </span>
                 </div>
 
-                <div className="mt-3">
+                <div className="mt-3 flex gap-2 flex-wrap">
                   <button
                     onClick={() => openContractPDF(rental)}
                     className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-blue-200"
                   >
                     📄 Télécharger le contrat
                   </button>
+                  {rental.id_photo_url && (
+                    <button
+                      onClick={() => openIdPhotoSecure(rental.id_photo_url!, `${rental.client_firstname} ${rental.client_name}`)}
+                      className="flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-indigo-200"
+                    >
+                      🪪 Photo pièce d'identité 🔒
+                    </button>
+                  )}
                 </div>
               </div>
             )
