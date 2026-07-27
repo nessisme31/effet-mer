@@ -33,7 +33,7 @@ export default function Fleet() {
   const fetchActive = useCallback(async () => {
     const { data } = await supabase
       .from('rentals')
-      .select('id, jet_ski_id, client_firstname, client_name, activity_name, activity_subtype, start_time, end_time, duration')
+      .select('id, jet_ski_id, client_firstname, client_name, activity_name, activity_subtype, start_time, end_time, duration, cart_items')
       .eq('status', 'active')
       .not('jet_ski_id', 'is', null)
 
