@@ -36,6 +36,7 @@ export default function Parking() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [payingParkingId, setPayingParkingId] = useState<string | null>(null)
 
   // Form state
   const [selectedType, setSelectedType] = useState(PARKING_TYPES[0])
@@ -88,6 +89,15 @@ export default function Parking() {
   const handleFinish = async (parking: Parking) => {
     if (!confirm(`Marquer le parking de "${parking.client_name}" comme terminé ?`)) return
     await supabase.from('parkings').update({ status: 'archived' }).eq('id', parking.id)
+    fetchParkings()
+  }
+
+  const handleConfirmPayment = async (parkingId: string, method: string) => {
+    await supabase
+      .from('parkings')
+      .update({ payment_method: method })
+      .eq('id', parkingId)
+    setPayingParkingId(null)
     fetchParkings()
   }
 
@@ -268,20 +278,56 @@ export default function Parking() {
 
               <div className="flex items-center justify-between">
                 <div className="flex gap-2 text-xs text-gray-500">
-                  <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
+                  <span className="bg-white/70 px-2 py-0.5 rounded-lg">
                     🕐 Depuis {fmt(parking.created_at)} ({elapsed(parking.created_at)})
                   </span>
-                  <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
+                  <span className="bg-white/70 px-2 py-0.5 rounded-lg">
                     📅 {fmtDate(parking.created_at)}
                   </span>
                 </div>
-                <button
-                  onClick={() => handleFinish(parking)}
-                  className="bg-green-500 hover:bg-green-600 text-white px-5 py-2 rounded-xl font-bold text-sm transition-colors shadow"
-                >
-                  ✅ Fini
-                </button>
+                <div className="flex gap-2 items-center">
+                  {parking.payment_method === 'En attente de paiement' && (
+                    <button
+                      onClick={() => setPayingParkingId(
+                        payingParkingId === parking.id ? null : parking.id
+                      )}
+                      className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl font-bold text-sm transition-colors shadow"
+                    >
+                      💳 Paiement reçu
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleFinish(parking)}
+                    className="bg-green-500 hover:bg-green-600 text-white px-5 py-2 rounded-xl font-bold text-sm transition-colors shadow"
+                  >
+                    ✅ Fini
+                  </button>
+                </div>
               </div>
+
+              {/* Mini-sélecteur mode de paiement */}
+              {payingParkingId === parking.id && (
+                <div className="mt-3 bg-white border-2 border-red-200 rounded-xl p-3">
+                  <p className="text-sm font-semibold text-gray-700 mb-2">
+                    💳 Comment a-t-il payé ?
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {CONFIG.paymentMethods.map(method => {
+                      const icons: Record<string, string> = { 'Espèces': '💵', 'Carte bancaire': '💳', 'Virement': '🏦' }
+                      return (
+                        <button
+                          key={method}
+                          onClick={() => handleConfirmPayment(parking.id, method)}
+                          className="py-2.5 rounded-xl border-2 border-gray-200 text-sm font-semibold hover:border-green-400 hover:bg-green-50 hover:text-green-700 transition-all flex flex-col items-center gap-1"
+                        >
+                          <span>{icons[method] || '💰'}</span>
+                          <span className="text-xs">{method}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
