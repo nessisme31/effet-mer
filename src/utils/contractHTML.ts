@@ -8,7 +8,7 @@ const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
 
 export const openContractPDF = (rental: Rental): void => {
-  const text = CONTRACT_TEXTS.fr // Contrat en français par défaut
+  const text = CONTRACT_TEXTS.fr
   const clientFullName = `${rental.client_firstname} ${rental.client_name}`
   const disclaimer = text.disclaimer.replace('{{name}}', clientFullName)
   const date = fmtDate(rental.created_at)
@@ -43,7 +43,7 @@ export const openContractPDF = (rental: Rental): void => {
     .btn-print:hover { background: #1e40af; }
 
     @media print {
-      .print-bar { display: none; }
+      .print-bar { display: none !important; }
       body { padding: 0; font-size: 11px; }
     }
 
@@ -62,27 +62,23 @@ export const openContractPDF = (rental: Rental): void => {
     .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: #f9fafb; padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; }
     .meta .col-2 { grid-column: 1 / -1; }
     .meta .lbl { font-size: 9px; color: #9ca3af; text-transform: uppercase; }
-    .meta .val { font-weight: 700; font-size: 11px; }
+    .meta .val { font-size: 12px; font-weight: 600; color: #1f2937; }
+    .meta .price { color: #1d4ed8; font-size: 14px; }
 
-    /* ── BLOCS ── */
+    /* ── BOXES ── */
     .box { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
-    .box-title {
-      font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px;
-      color: #4b5563; border-bottom: 1px solid #f3f4f6; padding-bottom: 5px; margin-bottom: 8px;
-    }
+    .box-title { font-size: 10px; font-weight: bold; color: #374151; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #f3f4f6; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
     .col-2 { grid-column: 1 / -1; }
-    .field .lbl { font-size: 9px; color: #9ca3af; }
-    .field .val { font-weight: 600; font-size: 11px; }
-    .price { color: #1d4ed8 !important; font-size: 16px !important; }
+    .field .lbl { font-size: 9px; color: #9ca3af; text-transform: uppercase; }
+    .field .val { font-size: 11px; font-weight: 600; color: #1f2937; }
 
-    /* ── CONDITIONS ── */
-    .section { background: #f9fafb; border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; }
-    .section-title { font-weight: 700; color: #1e3a8a; margin-bottom: 4px; font-size: 11px; }
-    .section p { color: #4b5563; line-height: 1.4; font-size: 10px; margin-bottom: 3px; }
+    /* ── SECTIONS ── */
+    .section { margin-bottom: 8px; }
+    .section-title { font-size: 10px; font-weight: bold; color: #374151; margin-bottom: 3px; }
+    .section p { font-size: 10px; color: #4b5563; line-height: 1.4; }
     .section ul { padding-left: 14px; }
-    .section ul li { color: #4b5563; line-height: 1.5; margin-bottom: 2px; font-size: 10px; }
-
+    .section ul li { font-size: 10px; color: #4b5563; line-height: 1.4; margin-bottom: 2px; }
     .disclaimer { font-style: italic; color: #6b7280; font-size: 10px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5e7eb; }
 
     /* ── SIGNATURE ── */
@@ -99,7 +95,7 @@ export const openContractPDF = (rental: Rental): void => {
 
   <div class="print-bar">
     <span>📄 Contrat ${rental.contract_number} — ${clientFullName}</span>
-    <button class="btn-print" onclick="window.print()">🖨️ Imprimer / Enregistrer en PDF</button>
+    <button class="btn-print" onclick="window.print()">🖨️ Enregistrer en PDF</button>
   </div>
 
   <!-- EN-TÊTE SOCIÉTÉ -->
@@ -144,8 +140,18 @@ export const openContractPDF = (rental: Rental): void => {
       </div>
       <div class="field col-2">
         <div class="lbl">Pièce d'identité</div>
-        <div class="val">${rental.client_id_number}</div>
+        <div class="val">${rental.client_id_number || '—'}</div>
       </div>
+      ${rental.villa_number ? `
+      <div class="field col-2">
+        <div class="lbl">🏠 N° de villa</div>
+        <div class="val">${rental.villa_number}</div>
+      </div>` : ''}
+      ${rental.client_origin ? `
+      <div class="field">
+        <div class="lbl">Origine</div>
+        <div class="val">${rental.client_origin === 'hotel' ? '🏨 Hôtel' : '🌍 Externe'}</div>
+      </div>` : ''}
     </div>
   </div>
 
@@ -168,7 +174,7 @@ export const openContractPDF = (rental: Rental): void => {
       </div>
       <div class="field">
         <div class="lbl">Horaires</div>
-        <div class="val">${rental.start_time ? fmtTime(rental.start_time) : '--'} → ${rental.end_time ? fmtTime(rental.end_time) : '--'}</div>
+        <div class="val">${fmtTime(rental.start_time)} → ${fmtTime(rental.end_time)}</div>
       </div>
       <div class="field">
         <div class="lbl">Tarif</div>
@@ -199,13 +205,35 @@ export const openContractPDF = (rental: Rental): void => {
     Document généré par ${CONFIG.businessName} (${CONFIG.company}) · ${CONFIG.location}
   </div>
 
+  <!-- Auto-print au chargement de la page -->
+  <script>
+    window.addEventListener('load', function() {
+      setTimeout(function() { window.print(); }, 400);
+    });
+  </script>
+
 </body>
 </html>`
 
+  // Méthode 1 : ouvrir dans un nouvel onglet (préféré)
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
   const url  = URL.createObjectURL(blob)
   const win  = window.open(url, '_blank')
+
   if (win) {
-    win.onload = () => URL.revokeObjectURL(url)
+    // Nettoyage de l'URL blob après chargement
+    win.addEventListener('load', () => {
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    })
+  } else {
+    // Méthode 2 : si popup bloqué → téléchargement direct du fichier HTML
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `Contrat-${rental.contract_number}-${rental.client_firstname}-${rental.client_name}.html`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    alert('💡 Le contrat a été téléchargé. Ouvrez le fichier dans votre navigateur puis faites Fichier → Imprimer → Enregistrer en PDF.')
   }
 }
