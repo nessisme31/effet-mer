@@ -25,7 +25,8 @@ interface FormData {
   clientPhone: string
   clientIdNumber: string
   clientOrigin: 'hotel' | 'externe' | ''
-  villaNumber: string   // ← NOUVEAU
+  villaNumber: string
+  clientIdPhotoUrl: string   // ← Chemin fichier photo CIN (bucket privé Supabase)
   discount: number
   finalTTC: number
   signature: string
@@ -49,6 +50,7 @@ const DEFAULT_FORM: FormData = {
   clientIdNumber: '',
   clientOrigin: '',
   villaNumber: '',
+  clientIdPhotoUrl: '',
   discount: 0,
   finalTTC: 0,
   signature: '',
@@ -122,6 +124,7 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
       end_time: overallEnd,
       status: 'active',
       returned_cart_ids: [],
+      id_photo_url: formData.clientIdPhotoUrl || null,   // ← Photo CIN
     })
 
     let { error } = await supabase.from('rentals').insert(buildPayload(formData.contractNumber))
@@ -346,6 +349,7 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
               clientPhone: formData.clientPhone,
               clientIdNumber: formData.clientIdNumber,
               clientOrigin: formData.clientOrigin,
+              clientIdPhotoUrl: formData.clientIdPhotoUrl,
             }}
           />
         )}
