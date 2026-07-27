@@ -38,14 +38,33 @@ export default function Reservations() {
   const [selectedJet, setSelectedJet] = useState<Record<string, string>>({})
   const [departureTime, setDepartureTime] = useState<Record<string, string>>({})
   const [showAll, setShowAll] = useState(false)
+  // Jets occupés : jetId → heure de retour
+  const [occupiedJets, setOccupiedJets] = useState<Record<string, string>>({})
 
   const fetchReservations = useCallback(async () => {
-    const { data } = await supabase
-      .from('rentals')
-      .select('*')
-      .eq('status', 'reserved')
-      .order('reservation_time', { ascending: true })
-    setReservations(data || [])
+    const [resData, activeData] = await Promise.all([
+      supabase
+        .from('rentals')
+        .select('*')
+        .eq('status', 'reserved')
+        .order('reservation_time', { ascending: true }),
+      supabase
+        .from('rentals')
+        .select('jet_ski_id, end_time')
+        .eq('status', 'active')
+        .not('jet_ski_id', 'is', null),
+    ])
+
+    setReservations(resData.data || [])
+
+    // Construire la map des jets occupés
+    const occupied: Record<string, string> = {}
+    activeData.data?.forEach(r => {
+      r.jet_ski_id?.split(',').forEach((id: string) => {
+        occupied[id.trim()] = r.end_time
+      })
+    })
+    setOccupiedJets(occupied)
     setLoading(false)
   }, [])
 
@@ -184,25 +203,50 @@ export default function Reservations() {
                   <div className="border-2 border-blue-200 rounded-xl p-4 bg-blue-50">
                     <p className="font-semibold text-blue-800 text-sm mb-3">▶️ Démarrer la location</p>
 
-                    {/* Jet ski */}
+                    {/* Jet ski avec statut en temps réel */}
                     <div className="mb-3">
                       <label className="block text-xs font-semibold text-gray-600 mb-1.5">
                         Jet ski 🚤
                       </label>
                       <div className="grid grid-cols-3 gap-1.5">
-                        {CONFIG.jetSkis.map(jet => (
-                          <button
-                            key={jet.id}
-                            onClick={() => setSelectedJet(prev => ({ ...prev, [r.id]: jet.id }))}
-                            className={`py-2 rounded-lg border-2 text-xs font-bold transition-all ${
-                              (selectedJet[r.id] || r.jet_ski_id) === jet.id
-                                ? 'border-blue-500 bg-blue-100 text-blue-800'
-                                : 'border-gray-200 text-gray-600 hover:border-blue-300'
-                            }`}
-                          >
-                            {jet.name}
-                          </button>
-                        ))}
+                        {CONFIG.jetSkis.map(jet => {
+                          const isOccupied = !!occupiedJets[jet.id]
+                          const isSelected = (selectedJet[r.id] || r.jet_ski_id) === jet.id
+                          const endTime = occupiedJets[jet.id]
+                            ? new Date(occupiedJets[jet.id]).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+                            : null
+                          return (
+                            <button
+                              key={jet.id}
+                              onClick={() => {
+                                if (!isOccupied) {
+                                  setSelectedJet(prev => ({ ...prev, [r.id]: jet.id }))
+                                }
+                              }}
+                              disabled={isOccupied}
+                              className={`py-2 px-1 rounded-lg border-2 text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
+                                isOccupied
+                                  ? 'border-red-200 bg-red-50 text-red-400 cursor-not-allowed opacity-70'
+                                  : isSelected
+                                    ? 'border-green-500 bg-green-100 text-green-800'
+                                    : 'border-gray-200 text-gray-600 hover:border-green-400 hover:bg-green-50'
+                              }`}
+                            >
+                              <span>{isOccupied ? '🔴' : isSelected ? '✅' : '🟢'}</span>
+                              <span>{jet.name}</span>
+                              {isOccupied && endTime && (
+                                <span className="text-red-400 font-normal text-[10px]">
+                                  retour {endTime}
+                                </span>
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {/* Légende */}
+                      <div className="flex gap-3 mt-2">
+                        <span className="text-xs text-gray-400 flex items-center gap-1">🟢 Disponible</span>
+                        <span className="text-xs text-gray-400 flex items-center gap-1">🔴 En mer</span>
                       </div>
                     </div>
 
