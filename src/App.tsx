@@ -4,7 +4,7 @@ import { Session } from '@supabase/supabase-js'
 import Login from './components/Login'
 import Layout from './components/Layout'
 
-export type Page = 'active' | 'new-rental' | 'drafts' | 'archives' | 'clients' | 'dashboard' | 'parking' | 'fleet'
+export type Page = 'active' | 'new-rental' | 'drafts' | 'archives' | 'clients' | 'dashboard' | 'parking' | 'fleet' | 'reservations'
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
