@@ -39,6 +39,8 @@ export default function Step2Client({ onNext, onBack, onPartialChange, initialDa
   // ── Photo pièce d'identité ─────────────────────────────────
   const [clientIdPhotoPath, setClientIdPhotoPath] = useState(initialData?.clientIdPhotoUrl ?? '')
   const [uploadingPhoto,    setUploadingPhoto]     = useState(false)
+  const [ocrLoading,        setOcrLoading]         = useState(false)
+  const [ocrStatus,         setOcrStatus]          = useState<'idle' | 'found' | 'not_found'>('idle')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // ── Recherche client existant ──────────────────────────────
@@ -130,27 +132,64 @@ export default function Step2Client({ onNext, onBack, onPartialChange, initialDa
     })
   }
 
-  // ── Upload photo vers Supabase Storage (bucket PRIVÉ) ──────
+  // ── Upload photo + OCR numéro CIN en parallèle ────────────
   const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     setUploadingPhoto(true)
-    try {
-      const ext  = file.name.split('.').pop() || 'jpg'
-      const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-      const { data: uploadData, error } = await supabase.storage
-        .from('id-photos')
-        .upload(path, file, { upsert: true })
-      if (error) {
-        alert('❌ Erreur upload. Vérifiez que le bucket "id-photos" existe dans Supabase Storage.')
-      } else if (uploadData) {
-        // On stocke le CHEMIN (pas d'URL publique — sécurisé)
-        setClientIdPhotoPath(uploadData.path)
-      }
-    } catch {
-      alert('❌ Erreur lors de l\'upload de la photo.')
-    }
-    setUploadingPhoto(false)
+    setOcrLoading(true)
+    setOcrStatus('idle')
+
+    await Promise.all([
+      // 1. Upload vers Supabase Storage
+      (async () => {
+        try {
+          const ext  = file.name.split('.').pop() || 'jpg'
+          const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+          const { data: uploadData, error } = await supabase.storage
+            .from('id-photos')
+            .upload(path, file, { upsert: true })
+          if (error) {
+            alert('❌ Erreur upload. Vérifiez que le bucket "id-photos" existe dans Supabase Storage.')
+          } else if (uploadData) {
+            setClientIdPhotoPath(uploadData.path)
+          }
+        } catch {
+          alert('❌ Erreur lors de l\'upload de la photo.')
+        }
+        setUploadingPhoto(false)
+      })(),
+
+      // 2. OCR — lecture du numéro CIN en parallèle
+      (async () => {
+        try {
+          const objectUrl = URL.createObjectURL(file)
+          // Import dynamique pour ne pas alourdir le chargement initial
+          const Tesseract = await import('tesseract.js')
+          const { data } = await Tesseract.recognize(objectUrl, 'fra+eng', {
+            logger: () => {},   // silence les logs
+          })
+          URL.revokeObjectURL(objectUrl)
+
+          const text = data.text.toUpperCase().replace(/\n/g, ' ')
+
+          // Pattern CIN Maroc : 1-2 lettres majuscules + 5-6 chiffres (ex: B123456, AB123456)
+          const match = text.match(/\b([A-Z]{1,2}\d{5,6})\b/)
+          if (match?.[1]) {
+            const detected = match[1]
+            setClientIdNumber(detected)
+            notify({ clientIdNumber: detected })
+            setOcrStatus('found')
+          } else {
+            setOcrStatus('not_found')
+          }
+        } catch (err) {
+          console.error('OCR error:', err)
+          setOcrStatus('not_found')
+        }
+        setOcrLoading(false)
+      })(),
+    ])
   }
 
   const removePhoto = () => {
@@ -307,6 +346,26 @@ export default function Step2Client({ onNext, onBack, onPartialChange, initialDa
                 onChange={handlePhotoCapture} disabled={uploadingPhoto} className="hidden" />
             </label>
           </div>
+
+          {/* Feedback OCR */}
+          {ocrLoading && (
+            <div className="mt-2 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2">
+              <span className="animate-pulse text-sm">🔍</span>
+              <span className="text-blue-700 text-sm font-medium">Lecture du numéro de carte en cours...</span>
+            </div>
+          )}
+          {!ocrLoading && ocrStatus === 'found' && (
+            <div className="mt-2 flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2">
+              <span className="text-sm">✨</span>
+              <span className="text-green-700 text-sm font-medium">Numéro détecté automatiquement — vérifiez et corrigez si nécessaire</span>
+            </div>
+          )}
+          {!ocrLoading && ocrStatus === 'not_found' && (
+            <div className="mt-2 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+              <span className="text-sm">⚠️</span>
+              <span className="text-amber-700 text-sm">Numéro non détecté — saisissez-le manuellement</span>
+            </div>
+          )}
 
           {/* Aperçu photo */}
           {clientIdPhotoPath && !uploadingPhoto && (
