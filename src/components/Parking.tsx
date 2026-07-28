@@ -41,6 +41,7 @@ export default function Parking() {
   // Form state
   const [selectedType, setSelectedType] = useState(PARKING_TYPES[0])
   const [clientName, setClientName] = useState('')
+  const [clientPhone, setClientPhone] = useState('')
   const [description, setDescription] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('')
 
@@ -61,6 +62,7 @@ export default function Parking() {
   const resetForm = () => {
     setSelectedType(PARKING_TYPES[0])
     setClientName('')
+    setClientPhone('')
     setDescription('')
     setPaymentMethod('')
     setShowForm(false)
@@ -69,17 +71,38 @@ export default function Parking() {
   const handleSave = async () => {
     if (!clientName.trim() || !paymentMethod) return
     setSaving(true)
+
+    const fullName = clientName.trim().toUpperCase()
+    // Séparer prénom / nom (premier mot = prénom, reste = nom)
+    const parts = fullName.split(' ')
+    const firstName = parts[0] || fullName
+    const lastName = parts.slice(1).join(' ') || ''
+
     const { error } = await supabase.from('parkings').insert({
       type: selectedType.label,
       price: selectedType.price,
-      client_name: clientName.trim().toUpperCase(),
+      client_name: fullName,
+      client_phone: clientPhone.trim() || null,
       description: description.trim() || null,
       payment_method: paymentMethod,
       status: 'active',
     })
+
     if (error) {
       alert('❌ Erreur lors de la création du parking. Vérifiez votre connexion.')
     } else {
+      // ── Enregistrer le client dans la base Clients ──
+      // On tente un upsert basé sur le téléphone si disponible
+      if (clientPhone.trim()) {
+        await supabase.from('clients').upsert({
+          client_name:      lastName || fullName,
+          client_firstname: firstName,
+          client_phone:     clientPhone.trim(),
+          client_id_number: `PARKING-${clientPhone.trim().replace(/\s/g, '')}`,
+          updated_at:       new Date().toISOString(),
+        }, { onConflict: 'client_id_number' }).then(() => {})
+        // Ignorer les erreurs si la table clients n'existe pas encore
+      }
       resetForm()
       fetchParkings()
     }
@@ -155,8 +178,11 @@ export default function Parking() {
           <div className="mb-5">
             <p className="text-sm font-semibold text-gray-600 mb-2">
               <span className="bg-blue-700 text-white text-xs rounded-full w-5 h-5 inline-flex items-center justify-center mr-2">2</span>
-              Nom du client &amp; description du jet
+              Client &amp; description
             </p>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Nom complet *</label>
             <input
               type="text"
               placeholder="Nom du client *"
