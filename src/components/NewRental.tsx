@@ -2,14 +2,13 @@ import { useState, useEffect } from 'react'
 
 const DRAFT_KEY = 'newRentalAutoSave'
 import { supabase } from '../lib/supabase'
-import { ContractLanguage, CartItem } from '../types'
+import { ContractLanguage, CartItem, Rental } from '../types'
 import { ClientData } from './steps/Step2Client'
 import Step1Activity from './steps/Step1Activity'
 import Step2Client from './steps/Step2Client'
 import Step3Recap from './steps/Step3Recap'
 import Step4Contract from './steps/Step4Contract'
 import Step5Payment from './steps/Step5Payment'
-
 import StepScheduleMulti from './steps/StepScheduleMulti'
 
 interface Props {
@@ -18,6 +17,7 @@ interface Props {
   initialFormData?: Partial<FormData>
   initialStep?: number
   draftId?: string
+  editRental?: Rental   // ← Mode modification d'une location existante
 }
 
 interface FormData {
@@ -28,7 +28,7 @@ interface FormData {
   clientIdNumber: string
   clientOrigin: 'hotel' | 'externe' | ''
   villaNumber: string
-  clientIdPhotoUrl: string   // ← Chemin fichier photo CIN (bucket privé Supabase)
+  clientIdPhotoUrl: string
   discount: number
   finalTTC: number
   signature: string
@@ -63,18 +63,43 @@ const DEFAULT_FORM: FormData = {
 
 type FlowState = 'form' | 'waiting-success'
 
-export default function NewRental({ onComplete, onPause, initialFormData, initialStep, draftId }: Props) {
+export default function NewRental({ onComplete, onPause, initialFormData, initialStep, draftId, editRental }: Props) {
+  const isEditMode = !!editRental
+
   const [step, setStep] = useState(initialStep ?? 1)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSavingDraft, setIsSavingDraft] = useState(false)
   const [flowState, setFlowState] = useState<FlowState>('form')
   const [waitingJetId, setWaitingJetId] = useState('')
-  const [formData, setFormData] = useState<FormData>({ ...DEFAULT_FORM, ...initialFormData })
   const [restoredFromCache, setRestoredFromCache] = useState(false)
 
-  // ── Restauration automatique après rechargement ────────────
+  // ── Initialisation du formulaire ───────────────────────────
+  const [formData, setFormData] = useState<FormData>(() => {
+    if (editRental) {
+      // Mode modification : pré-remplit depuis la location existante
+      return {
+        cart: editRental.cart_items || [],
+        clientName: editRental.client_name,
+        clientFirstname: editRental.client_firstname,
+        clientPhone: editRental.client_phone,
+        clientIdNumber: editRental.client_id_number,
+        clientOrigin: (editRental.client_origin as 'hotel' | 'externe' | '') || '',
+        villaNumber: editRental.villa_number || '',
+        clientIdPhotoUrl: editRental.id_photo_url || '',
+        discount: editRental.discount || 0,
+        finalTTC: editRental.price,
+        signature: '',   // sera re-signé
+        contractLanguage: 'fr',
+        contractNumber: editRental.contract_number,  // même numéro !
+        paymentMethod: editRental.payment_method,
+      }
+    }
+    return { ...DEFAULT_FORM, ...initialFormData }
+  })
+
+  // ── Restauration automatique (désactivée en mode modification) ──
   useEffect(() => {
-    // Ne pas restaurer si on reprend depuis un brouillon Supabase
+    if (isEditMode) return
     if (initialFormData) return
     try {
       const saved = localStorage.getItem(DRAFT_KEY)
@@ -90,16 +115,16 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Sauvegarde automatique à chaque changement ─────────────
+  // ── Sauvegarde automatique (désactivée en mode modification) ──
   useEffect(() => {
+    if (isEditMode) return
     if (step > 1) {
       localStorage.setItem(DRAFT_KEY, JSON.stringify({ formData, step }))
     }
-  }, [formData, step])
+  }, [formData, step, isEditMode])
 
   const jetItem = formData.cart.find(item => item.activity.requiresJetSki)
 
-  // Toujours 6 étapes — le jet ski est choisi dans l'étape Horaires
   const stepLabels = ['Panier', 'Client', 'Récap', 'Contrat', 'Paiement', 'Horaires']
 
   const cartSummary = formData.cart
@@ -111,11 +136,50 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
     })
     .join(' + ')
 
+  // ─── Construction du payload ──────────────────────────────
+  const buildPayload = (contractNumber: string) => {
+    const ht = Math.round(formData.finalTTC / 1.2)
+    const activeItems = formData.cart.filter(i => i.itemStatus === 'active' && i.itemStartTime && i.itemEndTime)
+    const overallStart = activeItems.length > 0
+      ? activeItems.reduce((min, i) => (i.itemStartTime! < min ? i.itemStartTime! : min), activeItems[0].itemStartTime!)
+      : null
+    const overallEnd = activeItems.length > 0
+      ? activeItems.reduce((max, i) => (i.itemEndTime! > max ? i.itemEndTime! : max), activeItems[0].itemEndTime!)
+      : null
+
+    return {
+      client_name: formData.clientName.toUpperCase(),
+      client_firstname: formData.clientFirstname,
+      client_phone: formData.clientPhone,
+      client_id_number: formData.clientIdNumber.toUpperCase(),
+      client_origin: formData.clientOrigin || null,
+      activity_name: cartSummary || formData.cart[0]?.activity.name,
+      activity_id: formData.cart[0]?.activity.id ?? null,
+      cart_items: formData.cart,
+      duration: formData.cart[0]?.activity.duration ?? '',
+      duration_minutes: formData.cart[0]?.activity.durationMinutes ?? 0,
+      price: formData.finalTTC,
+      discount: formData.discount,
+      price_ht: ht,
+      jet_ski_id: (() => {
+        const ids = formData.cart.filter(i => i.assignedJetSkiId).map(i => i.assignedJetSkiId!)
+        return ids.length > 0 ? ids.join(',') : null
+      })(),
+      payment_method: formData.paymentMethod,
+      signature: formData.signature,
+      contract_number: contractNumber,
+      start_time: overallStart,
+      end_time: overallEnd,
+      id_photo_url: formData.clientIdPhotoUrl || null,
+    }
+  }
+
   // ─── Sauvegarde finale ────────────────────────────────────
   const saveRental = async (scheduledCart: CartItem[]) => {
-    const ht = Math.round(formData.finalTTC / 1.2)
+    // Met à jour le cart avec les horaires finaux
+    setFormData(prev => ({ ...prev, cart: scheduledCart }))
 
-    // Calculer les horaires globaux depuis les items actifs
+    const ht = Math.round(formData.finalTTC / 1.2)
     const activeItems = scheduledCart.filter(i => i.itemStatus === 'active' && i.itemStartTime && i.itemEndTime)
     const overallStart = activeItems.length > 0
       ? activeItems.reduce((min, i) => (i.itemStartTime! < min ? i.itemStartTime! : min), activeItems[0].itemStartTime!)
@@ -124,25 +188,22 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
       ? activeItems.reduce((max, i) => (i.itemEndTime! > max ? i.itemEndTime! : max), activeItems[0].itemEndTime!)
       : null
 
-    const buildPayload = (contractNumber: string) => ({
+    const buildPayloadWithCart = (contractNumber: string) => ({
       client_name: formData.clientName.toUpperCase(),
       client_firstname: formData.clientFirstname,
       client_phone: formData.clientPhone,
       client_id_number: formData.clientIdNumber.toUpperCase(),
       client_origin: formData.clientOrigin || null,
-      activity_name: cartSummary || formData.cart[0]?.activity.name,
-      activity_id: formData.cart[0]?.activity.id ?? null,
+      activity_name: cartSummary || scheduledCart[0]?.activity.name,
+      activity_id: scheduledCart[0]?.activity.id ?? null,
       cart_items: scheduledCart,
-      duration: formData.cart[0]?.activity.duration ?? '',
-      duration_minutes: formData.cart[0]?.activity.durationMinutes ?? 0,
+      duration: scheduledCart[0]?.activity.duration ?? '',
+      duration_minutes: scheduledCart[0]?.activity.durationMinutes ?? 0,
       price: formData.finalTTC,
       discount: formData.discount,
       price_ht: ht,
-      // jet_ski_id calculé depuis le scheduledCart (avec assignedJetSkiId rempli)
       jet_ski_id: (() => {
-        const ids = scheduledCart
-          .filter(i => i.assignedJetSkiId)
-          .map(i => i.assignedJetSkiId!)
+        const ids = scheduledCart.filter(i => i.assignedJetSkiId).map(i => i.assignedJetSkiId!)
         return ids.length > 0 ? ids.join(',') : null
       })(),
       payment_method: formData.paymentMethod,
@@ -150,40 +211,53 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
       contract_number: contractNumber,
       start_time: overallStart,
       end_time: overallEnd,
-      status: 'active',
-      returned_cart_ids: [],
-      id_photo_url: formData.clientIdPhotoUrl || null,   // ← Photo CIN
+      id_photo_url: formData.clientIdPhotoUrl || null,
     })
 
-    let { error } = await supabase.from('rentals').insert(buildPayload(formData.contractNumber))
+    if (isEditMode && editRental) {
+      // ── Mode modification : UPDATE ─────────────────────────
+      const updateData = {
+        ...buildPayloadWithCart(editRental.contract_number),
+        status: editRental.status,                            // conserve le statut original
+        returned_cart_ids: editRental.returned_cart_ids || [],
+      }
+      const { error } = await supabase.from('rentals').update(updateData).eq('id', editRental.id)
+      if (error) throw error
 
-    // Si numéro de contrat déjà utilisé → regénérer automatiquement
-    if (error?.code === '23505') {
-      const newNum = generateContractNumber()
-      const retry = await supabase.from('rentals').insert(buildPayload(newNum))
-      error = retry.error
-    }
+    } else {
+      // ── Mode création : INSERT ─────────────────────────────
+      let { error } = await supabase.from('rentals').insert({
+        ...buildPayloadWithCart(formData.contractNumber),
+        status: 'active',
+        returned_cart_ids: [],
+      })
 
-    if (error) throw error
+      if (error?.code === '23505') {
+        const newNum = generateContractNumber()
+        const retry = await supabase.from('rentals').insert({
+          ...buildPayloadWithCart(newNum),
+          status: 'active',
+          returned_cart_ids: [],
+        })
+        error = retry.error
+      }
+      if (error) throw error
 
-    if (draftId) {
-      await supabase.from('draft_rentals').delete().eq('id', draftId)
-    }
+      if (draftId) {
+        await supabase.from('draft_rentals').delete().eq('id', draftId)
+      }
 
-    // ── Mettre à jour / créer la fiche client ──────────────────
-    // UPSERT : si le client existe (même N° pièce) → mise à jour
-    //          sinon → création automatique
-    if (formData.clientIdNumber.trim()) {
-      await supabase.from('clients').upsert({
-        client_name:      formData.clientName.toUpperCase(),
-        client_firstname: formData.clientFirstname,
-        client_phone:     formData.clientPhone,
-        client_id_number: formData.clientIdNumber.toUpperCase(),
-        client_origin:    formData.clientOrigin || null,
-        villa_number:     formData.villaNumber  || null,
-        updated_at:       new Date().toISOString(),
-      }, { onConflict: 'client_id_number' })
-      // On ignore les erreurs ici pour ne pas bloquer la location
+      if (formData.clientIdNumber.trim()) {
+        await supabase.from('clients').upsert({
+          client_name:      formData.clientName.toUpperCase(),
+          client_firstname: formData.clientFirstname,
+          client_phone:     formData.clientPhone,
+          client_id_number: formData.clientIdNumber.toUpperCase(),
+          client_origin:    formData.clientOrigin || null,
+          villa_number:     formData.villaNumber  || null,
+          updated_at:       new Date().toISOString(),
+        }, { onConflict: 'client_id_number' })
+      }
     }
   }
 
@@ -210,13 +284,12 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
 
   const handleStep5 = (paymentMethod: string) => {
     setFormData(prev => ({ ...prev, paymentMethod }))
-    setStep(6)   // → toujours l'étape Horaires
+    setStep(6)
   }
 
-
-
-  // File d'attente jet ski
+  // File d'attente jet ski (non disponible en mode modification)
   const handleAddToWaitingList = async (jetSkiId: string) => {
+    if (isEditMode) return  // désactivé en mode modification
     setIsSubmitting(true)
     try {
       const ht = Math.round(formData.finalTTC / 1.2)
@@ -265,12 +338,12 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
     setIsSubmitting(false)
   }
 
-  // Horaires finaux (étape 6 ou 7)
+  // Horaires finaux
   const handleSchedule = async (scheduledCart: CartItem[]) => {
     setIsSubmitting(true)
     try {
       await saveRental(scheduledCart)
-      localStorage.removeItem(DRAFT_KEY)
+      if (!isEditMode) localStorage.removeItem(DRAFT_KEY)
       onComplete()
     } catch (err) {
       console.error(err)
@@ -279,22 +352,18 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
     setIsSubmitting(false)
   }
 
-  // ── Réservation pour plus tard ─────────────────────────────
-  // jetAssignments = { [cartId]: jetSkiId } — un jet par activité jet ski
+  // Réservation pour plus tard (non disponible en mode modification)
   const handleReservation = async (reservationTime: string, jetAssignments: Record<string, string>) => {
+    if (isEditMode) return  // désactivé en mode modification
     setIsSubmitting(true)
     try {
       const ht = Math.round(formData.finalTTC / 1.2)
-
-      // Injecter le jet souhaité dans chaque cart_item
       const cartWithJets = formData.cart.map(item => ({
         ...item,
         assignedJetSkiId: item.activity.requiresJetSki
           ? (jetAssignments[item.cartId] || undefined)
           : item.assignedJetSkiId,
       }))
-
-      // jet_ski_id global = liste de tous les jets souhaités, séparés par virgule
       const allJetIds = Object.values(jetAssignments).filter(Boolean)
       const jetSkiId = allJetIds.length > 0 ? allJetIds.join(',') : null
 
@@ -306,13 +375,13 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
         client_origin:    formData.clientOrigin || null,
         activity_name:    cartSummary || formData.cart[0]?.activity.name,
         activity_id:      formData.cart[0]?.activity.id ?? null,
-        cart_items:       cartWithJets,   // avec jets assignés
+        cart_items:       cartWithJets,
         duration:         formData.cart[0]?.activity.duration ?? '',
         duration_minutes: formData.cart[0]?.activity.durationMinutes ?? 0,
         price:            formData.finalTTC,
         discount:         formData.discount,
         price_ht:         ht,
-        jet_ski_id:       jetSkiId,       // souhaités, non bloqués
+        jet_ski_id:       jetSkiId,
         payment_method:   formData.paymentMethod,
         signature:        formData.signature,
         contract_number:  formData.contractNumber,
@@ -336,6 +405,11 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
 
   // ─── Pause ────────────────────────────────────────────────
   const handlePause = async () => {
+    if (isEditMode) {
+      // En mode modification → annuler simplement
+      onPause()
+      return
+    }
     setIsSavingDraft(true)
     try {
       const draftData = {
@@ -351,7 +425,7 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
       } else {
         await supabase.from('draft_rentals').insert(draftData)
       }
-      localStorage.removeItem(DRAFT_KEY)   // ← on efface le cache local (sauvé dans Supabase)
+      localStorage.removeItem(DRAFT_KEY)
       onPause()
     } catch (err) {
       console.error(err)
@@ -385,8 +459,21 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
     <div className="max-w-2xl mx-auto">
       <div className="bg-white rounded-2xl shadow-sm border p-6">
 
-        {/* Bannière restauration après rechargement */}
-        {restoredFromCache && (
+        {/* ── Bannière mode modification ── */}
+        {isEditMode && (
+          <div className="mb-4 bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 flex items-center gap-3">
+            <span className="text-2xl">✏️</span>
+            <div>
+              <p className="text-amber-800 font-bold text-sm">Mode modification</p>
+              <p className="text-amber-600 text-xs">
+                Contrat {editRental!.contract_number} · Toutes les étapes sont pré-remplies
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Bannière restauration (masquée en mode modification) */}
+        {!isEditMode && restoredFromCache && (
           <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 flex items-center justify-between">
             <span className="text-blue-700 text-sm">
               🔄 Formulaire restauré automatiquement après rechargement
@@ -426,7 +513,8 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
                 )
               })}
             </div>
-            {step >= 2 && (
+            {/* Bouton Pause : masqué en mode modification */}
+            {!isEditMode && step >= 2 && (
               <button onClick={handlePause} disabled={isSavingDraft}
                 className="ml-3 flex items-center gap-1.5 px-3 py-2 bg-amber-50 border border-amber-300 text-amber-700 rounded-xl text-xs font-semibold hover:bg-amber-100 disabled:opacity-50 whitespace-nowrap">
                 {isSavingDraft ? '💾...' : '⏸️ Pause'}
@@ -495,14 +583,11 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
           />
         )}
 
-
-
-        {/* Étape 6 : Horaires — toujours, avec ou sans jet ski */}
         {step === 6 && (
           <StepScheduleMulti
             cart={formData.cart}
             onComplete={handleSchedule}
-            onReservation={handleReservation}
+            onReservation={!isEditMode ? handleReservation : undefined}
             onBack={() => setStep(5)}
             isSubmitting={isSubmitting}
           />
