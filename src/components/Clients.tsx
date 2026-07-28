@@ -4,6 +4,16 @@ import { CONFIG } from '../config'
 import { Rental } from '../types'
 import { openContractPDF } from '../utils/contractHTML'
 
+interface ParkingRecord {
+  id: string
+  type: string
+  description: string | null
+  price: number
+  payment_method: string
+  status: string
+  created_at: string
+}
+
 interface ClientSummary {
   key: string
   name: string
@@ -15,7 +25,8 @@ interface ClientSummary {
   visits: number
   lastVisit: string
   activities: string[]
-  rentals: Rental[]   // ← Toutes les locations pour l'accordéon
+  rentals: Rental[]
+  parkings: ParkingRecord[]   // ← Entrées parking du client
 }
 
 // ── Lien photo signé (1h) ──────────────────────────────────
@@ -74,56 +85,83 @@ export default function Clients() {
 
   useEffect(() => {
     const fetch = async () => {
-      const { data } = await supabase
-        .from('rentals')
-        .select('*')
-        .order('created_at', { ascending: false })
+      const [rentalsRes, parkingsRes] = await Promise.all([
+        supabase.from('rentals').select('*').order('created_at', { ascending: false }),
+        supabase.from('parkings').select('*').order('created_at', { ascending: false }),
+      ])
 
-      if (data) {
-        const map = new Map<string, ClientSummary>()
+      const map = new Map<string, ClientSummary>()
 
-        data.forEach((r: Rental) => {
-          // Clé : téléphone (ou nom si pas de tel)
-          const key = r.client_phone?.replace(/\s/g, '') || `${r.client_name}-${r.client_firstname}`
+      // ── 1. Locations ──────────────────────────────────────
+      rentalsRes.data?.forEach((r: Rental) => {
+        const key = r.client_phone?.replace(/\s/g, '') || `${r.client_name}-${r.client_firstname}`
 
-          if (map.has(key)) {
-            const c = map.get(key)!
-            c.totalCA += r.price
-            c.visits += 1
-            if (r.created_at > c.lastVisit) {
-              c.lastVisit = r.created_at
-              if (r.id_photo_url) c.idPhotoPath = r.id_photo_url
-            }
-            if (!c.activities.includes(r.activity_name)) c.activities.push(r.activity_name)
-            c.rentals.push(r)
-          } else {
-            map.set(key, {
-              key,
-              name: r.client_name,
-              firstname: r.client_firstname,
-              phone: r.client_phone,
-              idNumber: r.client_id_number,
-              idPhotoPath: r.id_photo_url || null,
-              totalCA: r.price,
-              visits: 1,
-              lastVisit: r.created_at,
-              activities: [r.activity_name],
-              rentals: [r],
-            })
+        if (map.has(key)) {
+          const c = map.get(key)!
+          c.totalCA += r.price
+          c.visits += 1
+          if (r.created_at > c.lastVisit) {
+            c.lastVisit = r.created_at
+            if (r.id_photo_url) c.idPhotoPath = r.id_photo_url
           }
-        })
+          if (!c.activities.includes(r.activity_name)) c.activities.push(r.activity_name)
+          c.rentals.push(r)
+        } else {
+          map.set(key, {
+            key,
+            name: r.client_name,
+            firstname: r.client_firstname,
+            phone: r.client_phone,
+            idNumber: r.client_id_number,
+            idPhotoPath: r.id_photo_url || null,
+            totalCA: r.price,
+            visits: 1,
+            lastVisit: r.created_at,
+            activities: [r.activity_name],
+            rentals: [r],
+            parkings: [],
+          })
+        }
+      })
 
-        // Trier les rentals de chaque client par date décroissante
-        map.forEach(c => {
-          c.rentals.sort((a, b) =>
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-          )
-        })
+      // ── 2. Parkings ───────────────────────────────────────
+      parkingsRes.data?.forEach((p: ParkingRecord) => {
+        // Clé parking = nom normalisé (pas de téléphone dans parking)
+        const name = (p as any).client_name as string
+        if (!name) return
+        const key = `PARKING-${name.toUpperCase().trim().replace(/\s+/g, '-')}`
 
-        setClients(
-          Array.from(map.values()).sort((a, b) => b.totalCA - a.totalCA)
+        if (map.has(key)) {
+          const c = map.get(key)!
+          c.totalCA += p.price
+          c.visits += 1
+          if (p.created_at > c.lastVisit) c.lastVisit = p.created_at
+          c.parkings.push(p)
+        } else {
+          map.set(key, {
+            key,
+            name: name.toUpperCase().trim(),
+            firstname: '',
+            phone: '',
+            idNumber: '',
+            idPhotoPath: null,
+            totalCA: p.price,
+            visits: 1,
+            lastVisit: p.created_at,
+            activities: ['🅿️ Parking'],
+            rentals: [],
+            parkings: [p],
+          })
+        }
+      })
+
+      map.forEach(c => {
+        c.rentals.sort((a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         )
-      }
+      })
+
+      setClients(Array.from(map.values()).sort((a, b) => b.totalCA - a.totalCA))
       setLoading(false)
     }
     fetch()
@@ -228,16 +266,14 @@ export default function Clients() {
                 </button>
               </div>
 
-              {/* ── Liste des contrats (accordéon) ── */}
+              {/* ── Liste contrats + parkings (accordéon) ── */}
               {isOpen && (
                 <div className="border-t border-gray-100 bg-gray-50 px-4 pb-4">
                   <div className="space-y-3 pt-3">
+
+                    {/* Locations */}
                     {client.rentals.map((rental, ri) => (
-                      <div
-                        key={rental.id}
-                        className="bg-white rounded-xl border border-gray-200 p-3"
-                      >
-                        {/* Ligne du haut : date + montant */}
+                      <div key={rental.id} className="bg-white rounded-xl border border-gray-200 p-3">
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2 text-xs text-gray-500">
                             <span className="bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full">
@@ -252,8 +288,6 @@ export default function Clients() {
                             {rental.price.toLocaleString()} {CONFIG.currency}
                           </span>
                         </div>
-
-                        {/* Activité + paiement */}
                         <div className="flex flex-wrap items-center gap-2 mb-2">
                           <span className="bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded-lg font-medium">
                             🚤 {rental.activity_name}
@@ -271,8 +305,6 @@ export default function Clients() {
                             📋 {rental.contract_number}
                           </span>
                         </div>
-
-                        {/* Bouton télécharger contrat */}
                         <button
                           onClick={() => openContractPDF(rental)}
                           className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-blue-200 w-full justify-center"
@@ -281,6 +313,37 @@ export default function Clients() {
                         </button>
                       </div>
                     ))}
+
+                    {/* Parkings */}
+                    {client.parkings.map((p, pi) => (
+                      <div key={p.id} className="bg-gray-50 rounded-xl border border-gray-300 p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <span className="bg-gray-200 text-gray-600 font-bold px-2 py-0.5 rounded-full">
+                              🅿️ {pi + 1}
+                            </span>
+                            <span>📅 {fmtDate(p.created_at)}</span>
+                          </div>
+                          <span className="font-bold text-gray-800">
+                            {p.price.toLocaleString()} {CONFIG.currency}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-lg font-medium">
+                            🅿️ {p.type}
+                          </span>
+                          {p.description && (
+                            <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-lg">
+                              📝 {p.description}
+                            </span>
+                          )}
+                          <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-lg">
+                            {p.payment_method}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+
                   </div>
                 </div>
               )}
