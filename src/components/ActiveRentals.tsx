@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { CONFIG } from '../config'
 import { Rental, WaitingEntry, CartItem, ItemStatus } from '../types'
+import EditRentalModal from './EditRentalModal'
 
 interface Props {
   onNewRental: () => void
@@ -236,6 +237,8 @@ export default function ActiveRentals({ onNewRental }: Props) {
   const [loading, setLoading] = useState(true)
   const [returnAlert, setReturnAlert] = useState<{ jetId: string; waiters: WaitingEntry[] } | null>(null)
   const [assigningRental, setAssigningRental] = useState<Rental | null>(null)
+  // Modal modification location active
+  const [editingRental, setEditingRental] = useState<Rental | null>(null)
   // Popup "démarrer l'activité suivante ?"
   const [startNextPanel, setStartNextPanel] = useState<{ rental: Rental; item: CartItem } | null>(null)
   // Popup démarrage manuel d'une activité en attente
@@ -389,6 +392,15 @@ export default function ActiveRentals({ onNewRental }: Props) {
   return (
     <div>
       {/* ── Popups ── */}
+
+      {/* Modal modification location active */}
+      {editingRental && (
+        <EditRentalModal
+          rental={editingRental}
+          onClose={() => setEditingRental(null)}
+          onSaved={() => { setEditingRental(null); fetchAll() }}
+        />
+      )}
 
       {/* Attribution jet ski */}
       {assigningRental && (
@@ -651,6 +663,16 @@ export default function ActiveRentals({ onNewRental }: Props) {
                         </p>
                       </div>
                     )}
+
+                    {/* Bouton Modifier */}
+                    <div className="mt-3 pt-3 border-t border-gray-100 flex justify-end">
+                      <button
+                        onClick={() => setEditingRental(rental)}
+                        className="flex items-center gap-1.5 text-orange-600 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                      >
+                        ✏️ Modifier
+                      </button>
+                    </div>
                   </div>
                 )
               })}
