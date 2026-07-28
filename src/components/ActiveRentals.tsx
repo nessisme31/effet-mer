@@ -4,6 +4,13 @@ import { CONFIG } from '../config'
 import { Rental, WaitingEntry, CartItem, ItemStatus } from '../types'
 import EditRentalModal from './EditRentalModal'
 
+const PENDING_PAYMENT = 'En attente de paiement'
+const PAYMENT_ICONS: Record<string, string> = {
+  'Espèces': '💵',
+  'Carte bancaire': '💳',
+  'Virement': '🏦',
+}
+
 interface Props {
   onNewRental: () => void
 }
@@ -243,6 +250,9 @@ export default function ActiveRentals({ onNewRental }: Props) {
   const [startNextPanel, setStartNextPanel] = useState<{ rental: Rental; item: CartItem } | null>(null)
   // Popup démarrage manuel d'une activité en attente
   const [startItemPanel, setStartItemPanel] = useState<{ rental: Rental; item: CartItem } | null>(null)
+  // Modal paiement en attente
+  const [payingRental, setPayingRental] = useState<Rental | null>(null)
+  const [payingMethod, setPayingMethod] = useState('')
 
   const fetchAll = useCallback(async () => {
     const [activeRes, pendingRes, waitingRes] = await Promise.all([
@@ -261,6 +271,19 @@ export default function ActiveRentals({ onNewRental }: Props) {
     const interval = setInterval(fetchAll, 30000)
     return () => clearInterval(interval)
   }, [fetchAll])
+
+  // ── Encaisser un paiement en attente ──────────────────────
+  const handlePayNow = async (method: string) => {
+    if (!payingRental || !method) return
+    const { error } = await supabase
+      .from('rentals')
+      .update({ payment_method: method })
+      .eq('id', payingRental.id)
+    if (error) { alert('❌ Erreur lors du paiement.'); return }
+    setPayingRental(null)
+    setPayingMethod('')
+    fetchAll()
+  }
 
   // ── Démarrer une activité ─────────────────────────────────
   const handleStartItem = async (
@@ -489,6 +512,44 @@ export default function ActiveRentals({ onNewRental }: Props) {
         </div>
       )}
 
+      {/* ── Modal paiement en attente ── */}
+      {payingRental && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold text-gray-800 mb-1">💳 Encaisser le paiement</h3>
+            <p className="text-gray-500 text-sm mb-1">{payingRental.client_firstname} {payingRental.client_name}</p>
+            <p className="text-3xl font-bold text-gray-800 mb-5">{payingRental.price.toLocaleString()} {CONFIG.currency}</p>
+            <div className="space-y-3 mb-6">
+              {CONFIG.paymentMethods.map(method => (
+                <button
+                  key={method}
+                  onClick={() => setPayingMethod(method)}
+                  className={`w-full p-3.5 rounded-xl border-2 text-left flex items-center gap-3 transition-all ${
+                    payingMethod === method
+                      ? 'border-green-500 bg-green-50'
+                      : 'border-gray-200 bg-white hover:border-green-300'
+                  }`}
+                >
+                  <span className="text-2xl">{PAYMENT_ICONS[method]}</span>
+                  <span className="font-semibold text-gray-800">{method}</span>
+                  {payingMethod === method && <span className="ml-auto text-green-500 text-xl">✓</span>}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => { setPayingRental(null); setPayingMethod('') }}
+                className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200">
+                Annuler
+              </button>
+              <button onClick={() => handlePayNow(payingMethod)} disabled={!payingMethod}
+                className="flex-1 bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700 disabled:opacity-40">
+                ✅ Confirmer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -560,9 +621,17 @@ export default function ActiveRentals({ onNewRental }: Props) {
                   ? cartItems.some(i => i.itemStatus === 'active' && i.itemEndTime && new Date(i.itemEndTime) < new Date())
                   : rental.end_time ? new Date(rental.end_time) < new Date() : false
 
+                const isPendingPayment = rental.payment_method === PENDING_PAYMENT
                 return (
-                  <div key={rental.id} className={`bg-white rounded-2xl shadow-sm border-2 p-5 ${isOverdue ? 'border-red-300' : 'border-gray-100'}`}>
-                    {isOverdue && (
+                  <div key={rental.id} className={`bg-white rounded-2xl shadow-sm border-2 p-5 ${
+                    isPendingPayment ? 'border-orange-400' : isOverdue ? 'border-red-300' : 'border-gray-100'
+                  }`}>
+                    {isPendingPayment && (
+                      <div className="bg-orange-50 text-orange-700 text-xs font-semibold px-3 py-1 rounded-lg mb-3 inline-flex items-center gap-1.5">
+                        ⏳ Paiement en attente · {rental.price.toLocaleString()} {CONFIG.currency}
+                      </div>
+                    )}
+                    {isOverdue && !isPendingPayment && (
                       <div className="bg-red-50 text-red-600 text-xs font-semibold px-3 py-1 rounded-lg mb-3 inline-block">⚠️ Dépassement horaire</div>
                     )}
 
@@ -574,7 +643,9 @@ export default function ActiveRentals({ onNewRental }: Props) {
                       </div>
                       <div className="text-right">
                         <span className="font-bold text-xl text-gray-800">{rental.price.toLocaleString()} {CONFIG.currency}</span>
-                        <p className="text-gray-400 text-xs">{rental.payment_method}</p>
+                        <p className={`text-xs font-medium ${isPendingPayment ? 'text-orange-500' : 'text-gray-400'}`}>
+                          {rental.payment_method}
+                        </p>
                       </div>
                     </div>
 
@@ -664,8 +735,16 @@ export default function ActiveRentals({ onNewRental }: Props) {
                       </div>
                     )}
 
-                    {/* Bouton Modifier */}
-                    <div className="mt-3 pt-3 border-t border-gray-100 flex justify-end">
+                    {/* Boutons Payer + Modifier */}
+                    <div className="mt-3 pt-3 border-t border-gray-100 flex justify-end gap-2">
+                      {isPendingPayment && (
+                        <button
+                          onClick={() => { setPayingRental(rental); setPayingMethod('') }}
+                          className="flex items-center gap-1.5 text-green-700 bg-green-50 hover:bg-green-100 border border-green-300 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
+                        >
+                          💳 Payer
+                        </button>
+                      )}
                       <button
                         onClick={() => setEditingRental(rental)}
                         className="flex items-center gap-1.5 text-orange-600 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
