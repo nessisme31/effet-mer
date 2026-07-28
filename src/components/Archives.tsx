@@ -3,34 +3,6 @@ import { supabase } from '../lib/supabase'
 import { CONFIG } from '../config'
 import { Rental } from '../types'
 import { openContractPDF } from '../utils/contractHTML'
-import EditRentalModal from './EditRentalModal'
-
-// Ouvre la photo avec un lien temporaire sécurisé (expire 1h)
-const openIdPhotoSecure = async (filePath: string, clientName: string) => {
-  const { data, error } = await supabase.storage
-    .from('id-photos')
-    .createSignedUrl(filePath, 3600)
-  if (error || !data?.signedUrl) {
-    alert('❌ Impossible de charger la photo.')
-    return
-  }
-  window.open(data.signedUrl, '_blank')
-}
-
-interface ParkingEntry {
-  id: string
-  type: string
-  price: number
-  client_name: string
-  description: string | null
-  payment_method: string
-  status: string
-  created_at: string
-}
-
-type ArchiveItem =
-  | { kind: 'rental'; data: Rental }
-  | { kind: 'parking'; data: ParkingEntry }
 
 const fmt = (iso: string) =>
   new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
@@ -38,99 +10,223 @@ const fmt = (iso: string) =>
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
+const toDatetimeLocal = (iso: string) => {
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 export default function Archives() {
   const [rentals, setRentals] = useState<Rental[]>([])
-  const [parkings, setParkings] = useState<ParkingEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [dateFilter, setDateFilter] = useState('')
-  const [editingRental,   setEditingRental]   = useState<Rental | null>(null)
-  const [confirmDelete,   setConfirmDelete]   = useState<Rental | null>(null)
-  const [deleting,        setDeleting]        = useState(false)
 
-  useEffect(() => {
-    const fetchAll = async () => {
-      const [rentalsRes, parkingsRes] = await Promise.all([
-        supabase
-          .from('rentals')
-          .select('*')
-          .eq('status', 'archived')
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('parkings')
-          .select('*')
-          .eq('status', 'archived')
-          .order('created_at', { ascending: false }),
-      ])
-      setRentals(rentalsRes.data || [])
-      setParkings(parkingsRes.data || [])
-      setLoading(false)
-    }
-    fetchAll()
-  }, [])
+  // ── Édition ───────────────────────────────────────────────
+  const [editingRental, setEditingRental] = useState<Rental | null>(null)
+  const [editForm, setEditForm] = useState({
+    client_firstname: '',
+    client_name: '',
+    client_phone: '',
+    price: 0,
+    payment_method: '',
+    start_time: '',
+    end_time: '',
+  })
+  const [saving, setSaving] = useState(false)
 
-  // Fusionner et trier par date décroissante
-  const allItems: ArchiveItem[] = [
-    ...rentals.map(r => ({ kind: 'rental' as const, data: r })),
-    ...parkings.map(p => ({ kind: 'parking' as const, data: p })),
-  ].sort((a, b) =>
-    new Date(b.data.created_at).getTime() - new Date(a.data.created_at).getTime()
-  )
+  const fetchRentals = async () => {
+    const { data } = await supabase
+      .from('rentals')
+      .select('*')
+      .eq('status', 'archived')
+      .order('created_at', { ascending: false })
+    setRentals(data || [])
+    setLoading(false)
+  }
 
-  const filtered = allItems.filter(item => {
-    const name = item.kind === 'rental'
-      ? `${item.data.client_firstname || ''} ${item.data.client_name}`
-      : item.data.client_name
-    const nameMatch = !search || name.toLowerCase().includes(search.toLowerCase())
-    const dateMatch = !dateFilter || item.data.created_at.startsWith(dateFilter)
+  useEffect(() => { fetchRentals() }, [])
+
+  const filtered = rentals.filter(r => {
+    const nameMatch = !search ||
+      `${r.client_firstname} ${r.client_name}`.toLowerCase().includes(search.toLowerCase()) ||
+      r.client_phone.includes(search)
+    const dateMatch = !dateFilter || r.created_at.startsWith(dateFilter)
     return nameMatch && dateMatch
   })
 
-  const totalCA = filtered.reduce((sum, item) => sum + item.data.price, 0)
+  const totalCA = filtered.reduce((sum, r) => sum + r.price, 0)
 
-  const totalItems = rentals.length + parkings.length
+  // ── Ouvrir le modal d'édition ──────────────────────────────
+  const openEdit = (rental: Rental) => {
+    setEditingRental(rental)
+    setEditForm({
+      client_firstname: rental.client_firstname,
+      client_name: rental.client_name,
+      client_phone: rental.client_phone,
+      price: rental.price,
+      payment_method: rental.payment_method,
+      start_time: toDatetimeLocal(rental.start_time),
+      end_time: toDatetimeLocal(rental.end_time),
+    })
+  }
 
-  const handleDeleteRental = async (rental: Rental) => {
-    setDeleting(true)
-    try {
-      const { error } = await supabase
-        .from('rentals')
-        .delete()
-        .eq('id', rental.id)
-      if (error) throw error
-      setConfirmDelete(null)
-      // Rafraîchir
-      const [r, p] = await Promise.all([
-        supabase.from('rentals').select('*').eq('status', 'archived').order('created_at', { ascending: false }),
-        supabase.from('parkings').select('*').eq('status', 'archived').order('created_at', { ascending: false }),
-      ])
-      setRentals(r.data || [])
-      setParkings(p.data || [])
-    } catch (err) {
-      console.error(err)
-      alert('❌ Erreur lors de la suppression.')
+  // ── Sauvegarder les modifications ─────────────────────────
+  const handleSave = async () => {
+    if (!editingRental) return
+    setSaving(true)
+    const { error } = await supabase
+      .from('rentals')
+      .update({
+        client_firstname: editForm.client_firstname,
+        client_name: editForm.client_name.toUpperCase(),
+        client_phone: editForm.client_phone,
+        price: Number(editForm.price),
+        payment_method: editForm.payment_method,
+        start_time: new Date(editForm.start_time).toISOString(),
+        end_time: new Date(editForm.end_time).toISOString(),
+      })
+      .eq('id', editingRental.id)
+
+    if (error) {
+      alert('❌ Erreur lors de la sauvegarde.')
+    } else {
+      setEditingRental(null)
+      fetchRentals()
     }
-    setDeleting(false)
+    setSaving(false)
+  }
+
+  // ── Supprimer une location ────────────────────────────────
+  const handleDelete = async (rental: Rental) => {
+    const name = `${rental.client_firstname} ${rental.client_name}`
+    if (!confirm(`⚠️ Supprimer définitivement la location de ${name} ?\n\nCette action est irréversible.`)) return
+    const { error } = await supabase.from('rentals').delete().eq('id', rental.id)
+    if (error) {
+      alert('❌ Erreur lors de la suppression.')
+    } else {
+      fetchRentals()
+    }
   }
 
   if (loading) return <div className="text-center py-16 text-gray-400">⏳ Chargement...</div>
 
   return (
     <div>
+      {/* ── Modal d'édition ── */}
+      {editingRental && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-bold text-gray-800 mb-5">✏️ Modifier la location</h3>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Prénom</label>
+                  <input
+                    type="text"
+                    value={editForm.client_firstname}
+                    onChange={e => setEditForm(p => ({ ...p, client_firstname: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Nom</label>
+                  <input
+                    type="text"
+                    value={editForm.client_name}
+                    onChange={e => setEditForm(p => ({ ...p, client_name: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Téléphone</label>
+                <input
+                  type="text"
+                  value={editForm.client_phone}
+                  onChange={e => setEditForm(p => ({ ...p, client_phone: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Prix ({CONFIG.currency})</label>
+                <input
+                  type="number"
+                  value={editForm.price}
+                  onChange={e => setEditForm(p => ({ ...p, price: Number(e.target.value) }))}
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Mode de paiement</label>
+                <select
+                  value={editForm.payment_method}
+                  onChange={e => setEditForm(p => ({ ...p, payment_method: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                  {CONFIG.paymentMethods.map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">🕐 Heure de départ</label>
+                <input
+                  type="datetime-local"
+                  value={editForm.start_time}
+                  onChange={e => setEditForm(p => ({ ...p, start_time: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">🏁 Heure de retour</label>
+                <input
+                  type="datetime-local"
+                  value={editForm.end_time}
+                  onChange={e => setEditForm(p => ({ ...p, end_time: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setEditingRental(null)}
+                className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex-1 bg-blue-700 text-white py-3 rounded-xl font-bold hover:bg-blue-800 disabled:opacity-50"
+              >
+                {saving ? '⏳ Sauvegarde...' : '✅ Enregistrer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── En-tête ── */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">Archives</h2>
-          <p className="text-gray-500 text-sm mt-1">
-            {rentals.length} location(s) · {parkings.length} parking(s)
-          </p>
+          <p className="text-gray-500 text-sm mt-1">{rentals.length} location(s) archivée(s)</p>
         </div>
       </div>
 
-      {/* Filtres */}
+      {/* ── Filtres ── */}
       <div className="flex gap-3 mb-4">
         <input
           type="text"
-          placeholder="🔍 Nom, prénom ou client..."
+          placeholder="🔍 Nom, prénom ou téléphone..."
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="flex-1 border border-gray-300 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 text-sm"
@@ -151,118 +247,72 @@ export default function Archives() {
         )}
       </div>
 
-      {/* Résumé */}
+      {/* ── Barre récap ── */}
       <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 mb-4 flex justify-between items-center">
-        <span className="text-blue-700 text-sm font-medium">{filtered.length} résultat(s) sur {totalItems}</span>
+        <span className="text-blue-700 text-sm font-medium">{filtered.length} résultat(s)</span>
         <span className="text-blue-800 font-bold">CA : {totalCA.toLocaleString()} {CONFIG.currency}</span>
       </div>
 
-      {/* Liste */}
+      {/* ── Liste ── */}
       <div className="space-y-3">
-        {filtered.map((item, idx) => {
-          if (item.kind === 'rental') {
-            const rental = item.data as Rental
-            return (
-              <div key={`rental-${rental.id}`} className="bg-white rounded-xl border p-4 hover:shadow-sm transition-shadow">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-semibold text-gray-800">
-                      {rental.client_firstname} {rental.client_name}
-                    </p>
-                    <p className="text-gray-500 text-sm">{rental.client_phone}</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="font-bold text-gray-800 text-lg">
-                      {rental.price.toLocaleString()} {CONFIG.currency}
-                    </span>
-                    <p className="text-gray-400 text-xs">{rental.payment_method}</p>
-                  </div>
-                </div>
-
-                <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-500">
-                  <span className="bg-blue-50 px-2 py-0.5 rounded-lg text-blue-700">
-                    🚤 {rental.activity_name}{rental.activity_subtype ? ` — ${rental.activity_subtype}` : ''}
-                  </span>
-                  {rental.jet_ski_id && (
-                    <span className="bg-gray-100 px-2 py-0.5 rounded-lg">🚤 {rental.jet_ski_id}</span>
-                  )}
-                  <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
-                    ⏱️ {fmt(rental.start_time ?? '')} → {fmt(rental.end_time ?? '')}
-                  </span>
-                  <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
-                    📅 {fmtDate(rental.created_at)}
-                  </span>
-                  <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
-                    📋 {rental.contract_number}
-                  </span>
-                </div>
-
-                <div className="mt-3 flex gap-2 flex-wrap">
-                  <button
-                    onClick={() => openContractPDF(rental)}
-                    className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-blue-200"
-                  >
-                    📄 Télécharger le contrat
-                  </button>
-                  <button
-                    onClick={() => setEditingRental(rental)}
-                    className="flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 text-orange-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-orange-200"
-                  >
-                    ✏️ Modifier
-                  </button>
-                  <button
-                    onClick={() => setConfirmDelete(rental)}
-                    className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-red-200"
-                  >
-                    🗑️ Supprimer
-                  </button>
-                  {rental.id_photo_url && (
-                    <button
-                      onClick={() => openIdPhotoSecure(rental.id_photo_url!, `${rental.client_firstname} ${rental.client_name}`)}
-                      className="flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-indigo-200"
-                    >
-                      🪪 Photo pièce d'identité 🔒
-                    </button>
-                  )}
-                </div>
+        {filtered.map(rental => (
+          <div key={rental.id} className="bg-white rounded-xl border p-4 hover:shadow-sm transition-shadow">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="font-semibold text-gray-800">
+                  {rental.client_firstname} {rental.client_name}
+                </p>
+                <p className="text-gray-500 text-sm">{rental.client_phone}</p>
               </div>
-            )
-          } else {
-            const parking = item.data as ParkingEntry
-            return (
-              <div key={`parking-${parking.id}`} className="bg-white rounded-xl border border-indigo-100 p-4 hover:shadow-sm transition-shadow">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2 py-0.5 rounded-full">
-                        🅿️ Parking
-                      </span>
-                    </div>
-                    <p className="font-semibold text-gray-800">{parking.client_name}</p>
-                    {parking.description && (
-                      <p className="text-gray-500 text-sm mt-0.5">📝 {parking.description}</p>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <span className="font-bold text-gray-800 text-lg">
-                      {parking.price.toLocaleString()} {CONFIG.currency}
-                    </span>
-                    <p className="text-gray-400 text-xs">{parking.payment_method}</p>
-                  </div>
-                </div>
-
-                <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-500">
-                  <span className="bg-indigo-50 px-2 py-0.5 rounded-lg text-indigo-700">
-                    🅿️ {parking.type}
-                  </span>
-                  <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
-                    📅 {fmtDate(parking.created_at)}
-                  </span>
-                </div>
+              <div className="text-right">
+                <span className="font-bold text-gray-800 text-lg">
+                  {rental.price.toLocaleString()} {CONFIG.currency}
+                </span>
+                <p className="text-gray-400 text-xs">{rental.payment_method}</p>
               </div>
-            )
-          }
-        })}
+            </div>
+
+            <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-500">
+              <span className="bg-blue-50 px-2 py-0.5 rounded-lg text-blue-700">
+                {rental.activity_name}{rental.activity_subtype ? ` — ${rental.activity_subtype}` : ''}
+              </span>
+              {rental.jet_ski_id && (
+                <span className="bg-gray-100 px-2 py-0.5 rounded-lg">🚤 {rental.jet_ski_id}</span>
+              )}
+              <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
+                ⏱️ {fmt(rental.start_time)} → {fmt(rental.end_time)}
+              </span>
+              <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
+                📅 {fmtDate(rental.created_at)}
+              </span>
+              <span className="bg-gray-100 px-2 py-0.5 rounded-lg">
+                📋 {rental.contract_number}
+              </span>
+            </div>
+
+            {/* ── Actions ── */}
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={() => openContractPDF(rental)}
+                className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-blue-200"
+              >
+                📄 Contrat
+              </button>
+              <button
+                onClick={() => openEdit(rental)}
+                className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-amber-200"
+              >
+                ✏️ Modifier
+              </button>
+              <button
+                onClick={() => handleDelete(rental)}
+                className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-red-200"
+              >
+                🗑️ Supprimer
+              </button>
+            </div>
+          </div>
+        ))}
 
         {filtered.length === 0 && (
           <div className="text-center py-12 text-gray-400">
@@ -271,65 +321,6 @@ export default function Archives() {
           </div>
         )}
       </div>
-
-      {/* ── Modal double confirmation suppression ──────── */}
-      {confirmDelete && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
-            <div className="text-center mb-5">
-              <div className="text-5xl mb-3">🗑️</div>
-              <h3 className="text-xl font-bold text-gray-800">Supprimer ce contrat ?</h3>
-              <p className="text-gray-500 text-sm mt-2">
-                <strong>{confirmDelete.client_firstname} {confirmDelete.client_name}</strong>
-                <br />
-                {confirmDelete.activity_name} · {confirmDelete.price.toLocaleString()} {CONFIG.currency}
-              </p>
-            </div>
-            <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-5">
-              <p className="text-red-700 text-sm font-semibold text-center">
-                ⚠️ Cette action est irréversible
-              </p>
-              <p className="text-red-500 text-xs text-center mt-1">
-                Le contrat disparaîtra des archives et des statistiques.<br />
-                Le client reste dans l'onglet Clients.
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setConfirmDelete(null)}
-                className="flex-1 py-3 rounded-2xl bg-gray-100 text-gray-700 font-semibold hover:bg-gray-200 transition-colors"
-              >
-                ✕ Annuler
-              </button>
-              <button
-                onClick={() => handleDeleteRental(confirmDelete)}
-                disabled={deleting}
-                className="flex-1 py-3 rounded-2xl bg-red-600 text-white font-bold hover:bg-red-700 transition-colors disabled:opacity-50"
-              >
-                {deleting ? '⏳ Suppression...' : '🗑️ Oui, supprimer'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal modification contrat */}
-      {editingRental && (
-        <EditRentalModal
-          rental={editingRental}
-          onClose={() => setEditingRental(null)}
-          onSaved={async () => {
-            setEditingRental(null)
-            // Recharger les archives
-            const [r, p] = await Promise.all([
-              supabase.from('rentals').select('*').eq('status', 'archived').order('created_at', { ascending: false }),
-              supabase.from('parkings').select('*').eq('status', 'archived').order('created_at', { ascending: false }),
-            ])
-            setRentals(r.data || [])
-            setParkings(p.data || [])
-          }}
-        />
-      )}
     </div>
   )
 }
