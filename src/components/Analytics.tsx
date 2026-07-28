@@ -164,21 +164,27 @@ export default function Analytics() {
   const topActivity = Object.entries(activityMap).sort((a, b) => b[1].ca - a[1].ca)[0]
 
   // ── Jet skis : sorties + heures totales ───────────────────
-  const jetMap = rentals
-    .filter(r => r.jet_ski_id)
-    .reduce((acc, r) => {
-      const ids = (r.jet_ski_id || '').split(',').map(s => s.trim()).filter(Boolean)
-      // Minutes de cette location
-      const mins = (r.start_time && r.end_time)
-        ? Math.max(0, (new Date(r.end_time).getTime() - new Date(r.start_time).getTime()) / 60000)
-        : 0
-      ids.forEach(id => {
-        if (!acc[id]) acc[id] = { count: 0, minutes: 0 }
-        acc[id].count++
-        acc[id].minutes += mins
-      })
-      return acc
-    }, {} as Record<string, { count: number; minutes: number }>)
+  // Fallback sur cart_items.assignedJetSkiId si jet_ski_id est null (bug ancien code)
+  const jetMap = rentals.reduce((acc, r) => {
+    let jetIds: string[] = []
+    if (r.jet_ski_id) {
+      jetIds = r.jet_ski_id.split(',').map((s: string) => s.trim()).filter(Boolean)
+    } else if (r.cart_items && Array.isArray(r.cart_items)) {
+      jetIds = (r.cart_items as CartItem[])
+        .filter(item => item.assignedJetSkiId)
+        .map(item => item.assignedJetSkiId!)
+    }
+    if (jetIds.length === 0) return acc
+    const mins = (r.start_time && r.end_time)
+      ? Math.max(0, (new Date(r.end_time).getTime() - new Date(r.start_time).getTime()) / 60000)
+      : 0
+    jetIds.forEach(id => {
+      if (!acc[id]) acc[id] = { count: 0, minutes: 0 }
+      acc[id].count++
+      acc[id].minutes += mins
+    })
+    return acc
+  }, {} as Record<string, { count: number; minutes: number }>)
 
   const fmtHours = (minutes: number) => {
     const h = Math.floor(minutes / 60)
@@ -241,7 +247,15 @@ export default function Analytics() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">Tableau de bord</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold text-gray-800">Tableau de bord</h2>
+        <button
+          onClick={() => { setLoading(true); fetchData() }}
+          className="flex items-center gap-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
+        >
+          🔄 Rafraîchir
+        </button>
+      </div>
 
       {/* ── KPI Cards ── */}
       <div className="grid grid-cols-2 gap-3 mb-6">
