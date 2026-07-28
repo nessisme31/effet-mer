@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { CONFIG } from '../config'
+import { CartItem } from '../types'
 
 interface Reservation {
   id: string
@@ -17,7 +18,7 @@ interface Reservation {
   jet_ski_id: string | null
   reservation_time: string
   status: string
-  cart_items: unknown[] | null
+  cart_items: CartItem[] | null
 }
 
 const fmtTime = (iso: string) =>
@@ -35,7 +36,8 @@ export default function Reservations() {
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [loading, setLoading] = useState(true)
   const [startingId, setStartingId] = useState<string | null>(null)
-  const [selectedJet, setSelectedJet] = useState<Record<string, string>>({})
+  // selectedJets : { rentalId → { cartItemId → jetId } }
+  const [selectedJets, setSelectedJets] = useState<Record<string, Record<string, string>>>({})
   const [departureTime, setDepartureTime] = useState<Record<string, string>>({})
   const [showAll, setShowAll] = useState(false)
   // Jets occupés : jetId → heure de retour
@@ -57,7 +59,6 @@ export default function Reservations() {
 
     setReservations(resData.data || [])
 
-    // Construire la map des jets occupés
     const occupied: Record<string, string> = {}
     activeData.data?.forEach(r => {
       r.jet_ski_id?.split(',').forEach((id: string) => {
@@ -78,32 +79,72 @@ export default function Reservations() {
     ? reservations
     : reservations.filter(r => isToday(r.reservation_time))
 
+  // ── Démarrer une réservation ───────────────────────────────
   const handleStart = async (r: Reservation) => {
-    const jetId = selectedJet[r.id] || r.jet_ski_id || ''
+    const jets = selectedJets[r.id] || {}
     const rawTime = departureTime[r.id]
 
-    if (!jetId) { alert('⚠️ Veuillez choisir un jet ski.'); return }
+    // Récupère les items jet ski dans le cart
+    const jetSkiItems = r.cart_items?.filter(item => item.activity?.requiresJetSki) || []
+
+    // Vérification : tous les jets ski ont un jet assigné
+    if (jetSkiItems.length > 0) {
+      for (const item of jetSkiItems) {
+        if (!jets[item.cartId]) {
+          alert(`⚠️ Veuillez choisir un jet ski pour l'activité ${item.activity.name} (${jetSkiItems.indexOf(item) + 1}).`)
+          return
+        }
+      }
+    } else {
+      // Ancienne logique si pas de cart_items
+      const jetId = Object.values(jets)[0] || r.jet_ski_id
+      if (!jetId) { alert('⚠️ Veuillez choisir un jet ski.'); return }
+    }
+
     if (!rawTime) { alert('⚠️ Veuillez indiquer l\'heure de départ.'); return }
 
-    // Calcul heure de fin
+    // Jets assignés (combinés)
+    const allJetIds = jetSkiItems.length > 0
+      ? jetSkiItems.map(item => jets[item.cartId]).filter(Boolean)
+      : Object.values(jets).filter(Boolean)
+
+    const jetSkiId = allJetIds.join(',') || r.jet_ski_id || ''
+
+    // Calcul horaires
     const today = new Date().toISOString().slice(0, 10)
     const start = new Date(`${today}T${rawTime}:00`)
     const end   = new Date(start.getTime() + r.duration_minutes * 60000)
+
+    // Mise à jour du cart avec les jets assignés
+    const updatedCart = r.cart_items
+      ? r.cart_items.map(item => {
+          if (!item.activity?.requiresJetSki) return item
+          const assigned = jets[item.cartId]
+          return {
+            ...item,
+            assignedJetSkiId: assigned || item.assignedJetSkiId,
+            itemStatus: 'active' as const,
+            itemStartTime: start.toISOString(),
+            itemEndTime: new Date(start.getTime() + item.activity.durationMinutes * 60000).toISOString(),
+          }
+        })
+      : null
 
     const { error } = await supabase
       .from('rentals')
       .update({
         status:     'active',
-        jet_ski_id: jetId,
+        jet_ski_id: jetSkiId,
         start_time: start.toISOString(),
         end_time:   end.toISOString(),
+        ...(updatedCart ? { cart_items: updatedCart } : {}),
       })
       .eq('id', r.id)
 
     if (error) { alert('❌ Erreur lors du démarrage.'); return }
 
     setStartingId(null)
-    setSelectedJet(prev => { const c = { ...prev }; delete c[r.id]; return c })
+    setSelectedJets(prev => { const c = { ...prev }; delete c[r.id]; return c })
     setDepartureTime(prev => { const c = { ...prev }; delete c[r.id]; return c })
     fetchReservations()
   }
@@ -112,6 +153,14 @@ export default function Reservations() {
     if (!confirm(`Annuler la réservation de ${r.client_firstname} ${r.client_name} ?`)) return
     await supabase.from('rentals').update({ status: 'archived' }).eq('id', r.id)
     fetchReservations()
+  }
+
+  // ── Helper : sélectionner un jet ──────────────────────────
+  const selectJet = (rentalId: string, cartItemId: string, jetId: string) => {
+    setSelectedJets(prev => ({
+      ...prev,
+      [rentalId]: { ...(prev[rentalId] || {}), [cartItemId]: jetId },
+    }))
   }
 
   if (loading) return <div className="text-center py-16 text-gray-400">⏳ Chargement...</div>
@@ -148,6 +197,11 @@ export default function Reservations() {
               ? `dans ${Math.round((new Date(r.reservation_time).getTime() - Date.now()) / 60000)} min`
               : 'Heure dépassée'
             const isLate = !isFuture(r.reservation_time)
+
+            // Items jet ski dans le cart
+            const jetSkiItems = r.cart_items?.filter(item => item.activity?.requiresJetSki) || []
+            // Jets déjà assignés aux autres items de CETTE réservation (pour éviter double assignation)
+            const assignedInThisRental = Object.values(selectedJets[r.id] || {})
 
             return (
               <div
@@ -201,60 +255,126 @@ export default function Reservations() {
                 {/* Panel de démarrage */}
                 {isStarting ? (
                   <div className="border-2 border-blue-200 rounded-xl p-4 bg-blue-50">
-                    <p className="font-semibold text-blue-800 text-sm mb-3">▶️ Démarrer la location</p>
+                    <p className="font-semibold text-blue-800 text-sm mb-4">▶️ Démarrer la location</p>
 
-                    {/* Jet ski avec statut en temps réel */}
-                    <div className="mb-3">
-                      <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-                        Jet ski 🚤
-                      </label>
-                      <div className="grid grid-cols-3 gap-1.5">
-                        {CONFIG.jetSkis.map(jet => {
-                          const isOccupied = !!occupiedJets[jet.id]
-                          const isSelected = (selectedJet[r.id] || r.jet_ski_id) === jet.id
-                          const endTime = occupiedJets[jet.id]
-                            ? new Date(occupiedJets[jet.id]).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-                            : null
+                    {/* ── Sélecteurs de jets (un par activité jet ski) ── */}
+                    {jetSkiItems.length > 0 ? (
+                      <div className="space-y-4 mb-3">
+                        {jetSkiItems.map((item, idx) => {
+                          const jetType = item.activity.jetType as 'FX' | 'VX' | undefined
+                          const jetsForType = jetType
+                            ? CONFIG.jetSkis.filter(j => j.type === jetType)
+                            : CONFIG.jetSkis
+                          const currentSelection = selectedJets[r.id]?.[item.cartId]
+
                           return (
-                            <button
-                              key={jet.id}
-                              onClick={() => {
-                                if (!isOccupied) {
-                                  setSelectedJet(prev => ({ ...prev, [r.id]: jet.id }))
-                                }
-                              }}
-                              disabled={isOccupied}
-                              className={`py-2 px-1 rounded-lg border-2 text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
-                                isOccupied
-                                  ? 'border-red-200 bg-red-50 text-red-400 cursor-not-allowed opacity-70'
-                                  : isSelected
-                                    ? 'border-green-500 bg-green-100 text-green-800'
-                                    : 'border-gray-200 text-gray-600 hover:border-green-400 hover:bg-green-50'
-                              }`}
-                            >
-                              <span>{isOccupied ? '🔴' : isSelected ? '✅' : '🟢'}</span>
-                              <span>{jet.name}</span>
-                              {isOccupied && endTime && (
-                                <span className="text-red-400 font-normal text-[10px]">
-                                  retour {endTime}
+                            <div key={item.cartId} className="bg-white rounded-xl p-3 border border-blue-100">
+                              <p className="text-xs font-bold text-gray-700 mb-2">
+                                {idx + 1}. {item.activity.name}
+                                {item.subtype ? ` — ${item.subtype}` : ''}
+                                <span className="font-normal text-gray-400 ml-2">
+                                  · {item.activity.duration} · {item.itemPrice?.toLocaleString() || item.activity.price.toLocaleString()} {CONFIG.currency}
                                 </span>
+                              </p>
+                              <div className="grid grid-cols-3 gap-1.5">
+                                {jetsForType.map(jet => {
+                                  const isOccupied = !!occupiedJets[jet.id]
+                                  const isSelectedHere = currentSelection === jet.id
+                                  // Jet déjà pris par un autre item de cette réservation
+                                  const takenByOther = !isSelectedHere && assignedInThisRental.includes(jet.id)
+                                  const endTime = occupiedJets[jet.id]
+                                    ? new Date(occupiedJets[jet.id]).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+                                    : null
+
+                                  return (
+                                    <button
+                                      key={jet.id}
+                                      onClick={() => {
+                                        if (!isOccupied && !takenByOther) {
+                                          selectJet(r.id, item.cartId, jet.id)
+                                        }
+                                      }}
+                                      disabled={isOccupied || takenByOther}
+                                      className={`py-2 px-1 rounded-lg border-2 text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
+                                        isOccupied
+                                          ? 'border-red-200 bg-red-50 text-red-400 cursor-not-allowed opacity-70'
+                                          : takenByOther
+                                          ? 'border-orange-200 bg-orange-50 text-orange-400 cursor-not-allowed opacity-70'
+                                          : isSelectedHere
+                                          ? 'border-green-500 bg-green-100 text-green-800'
+                                          : 'border-gray-200 text-gray-600 hover:border-green-400 hover:bg-green-50'
+                                      }`}
+                                    >
+                                      <span>
+                                        {isOccupied ? '🔴' : takenByOther ? '🟠' : isSelectedHere ? '✅' : '🟢'}
+                                      </span>
+                                      <span>{jet.name}</span>
+                                      {isOccupied && endTime && (
+                                        <span className="text-red-400 font-normal text-[10px]">
+                                          retour {endTime}
+                                        </span>
+                                      )}
+                                      {takenByOther && (
+                                        <span className="text-orange-400 font-normal text-[10px]">
+                                          déjà pris
+                                        </span>
+                                      )}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                              {currentSelection && (
+                                <p className="text-xs text-green-700 mt-1.5 font-medium">
+                                  ✅ Jet assigné : <strong>{currentSelection}</strong>
+                                </p>
                               )}
-                            </button>
+                            </div>
                           )
                         })}
                       </div>
-                      {/* Légende */}
-                      <div className="flex gap-3 mt-2">
-                        <span className="text-xs text-gray-400 flex items-center gap-1">🟢 Disponible</span>
-                        <span className="text-xs text-gray-400 flex items-center gap-1">🔴 En mer</span>
+                    ) : (
+                      // Fallback pour les anciennes réservations sans cart_items
+                      <div className="mb-3">
+                        <label className="block text-xs font-semibold text-gray-600 mb-1.5">Jet ski 🚤</label>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {CONFIG.jetSkis.map(jet => {
+                            const isOccupied = !!occupiedJets[jet.id]
+                            const isSelected = selectedJets[r.id]?.['legacy'] === jet.id || r.jet_ski_id === jet.id
+                            const endTime = occupiedJets[jet.id]
+                              ? new Date(occupiedJets[jet.id]).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+                              : null
+                            return (
+                              <button
+                                key={jet.id}
+                                onClick={() => { if (!isOccupied) selectJet(r.id, 'legacy', jet.id) }}
+                                disabled={isOccupied}
+                                className={`py-2 px-1 rounded-lg border-2 text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
+                                  isOccupied
+                                    ? 'border-red-200 bg-red-50 text-red-400 cursor-not-allowed opacity-70'
+                                    : isSelected
+                                    ? 'border-green-500 bg-green-100 text-green-800'
+                                    : 'border-gray-200 text-gray-600 hover:border-green-400 hover:bg-green-50'
+                                }`}
+                              >
+                                <span>{isOccupied ? '🔴' : isSelected ? '✅' : '🟢'}</span>
+                                <span>{jet.name}</span>
+                                {isOccupied && endTime && (
+                                  <span className="text-red-400 font-normal text-[10px]">retour {endTime}</span>
+                                )}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        <div className="flex gap-3 mt-2">
+                          <span className="text-xs text-gray-400">🟢 Disponible</span>
+                          <span className="text-xs text-gray-400">🔴 En mer</span>
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     {/* Heure de départ */}
                     <div className="mb-3">
-                      <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-                        Heure de départ
-                      </label>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1.5">Heure de départ</label>
                       <input
                         type="time"
                         value={departureTime[r.id] || fmtTime(r.reservation_time).replace('h', ':')}
