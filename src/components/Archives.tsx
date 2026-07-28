@@ -4,13 +4,18 @@ import { CONFIG } from '../config'
 import { Rental } from '../types'
 import { openContractPDF } from '../utils/contractHTML'
 
-const fmt = (iso: string) =>
-  new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+const fmt = (iso: string | null) => {
+  if (!iso) return '--:--'
+  return new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+}
 
-const fmtDate = (iso: string) =>
-  new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+const fmtDate = (iso: string | null) => {
+  if (!iso) return '--'
+  return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
 
-const toDatetimeLocal = (iso: string) => {
+const toDatetimeLocal = (iso: string | null) => {
+  if (!iso) return ''
   const d = new Date(iso)
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
