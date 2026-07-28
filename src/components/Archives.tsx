@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { CONFIG } from '../config'
 import { Rental } from '../types'
 import { openContractPDF } from '../utils/contractHTML'
+import NewRental from './NewRental'
 
 // ── Types ──────────────────────────────────────────────────────
 interface ParkingRecord {
@@ -39,19 +40,14 @@ export default function Archives() {
   const [search, setSearch] = useState('')
   const [dateFilter, setDateFilter] = useState('')
 
-  // ── État édition location ──────────────────────────────────
-  const [editingRental, setEditingRental] = useState<Rental | null>(null)
-  const [editRentalForm, setEditRentalForm] = useState({
-    client_firstname: '', client_name: '', client_phone: '',
-    price: 0, payment_method: '', start_time: '', end_time: '',
-  })
+  // ── Modification complète d'une location (formulaire 6 étapes) ──
+  const [editingRentalFull, setEditingRentalFull] = useState<Rental | null>(null)
 
-  // ── État édition parking ───────────────────────────────────
+  // ── Modification simple d'un parking ─────────────────────────
   const [editingParking, setEditingParking] = useState<ParkingRecord | null>(null)
   const [editParkingForm, setEditParkingForm] = useState({
     client_name: '', description: '', price: 0, payment_method: '',
   })
-
   const [saving, setSaving] = useState(false)
 
   // ── Chargement des données ─────────────────────────────────
@@ -67,7 +63,7 @@ export default function Archives() {
 
   useEffect(() => { fetchAll() }, [])
 
-  // ── Fusion et filtrage ─────────────────────────────────────
+  // ── Filtrage ───────────────────────────────────────────────
   const filteredRentals = rentals.filter(r => {
     const nameMatch = !search ||
       `${r.client_firstname} ${r.client_name}`.toLowerCase().includes(search.toLowerCase()) ||
@@ -88,37 +84,7 @@ export default function Archives() {
 
   const totalCount = filteredRentals.length + filteredParkings.length
 
-  // ── Édition location ───────────────────────────────────────
-  const openEditRental = (rental: Rental) => {
-    setEditingRental(rental)
-    setEditRentalForm({
-      client_firstname: rental.client_firstname,
-      client_name: rental.client_name,
-      client_phone: rental.client_phone,
-      price: rental.price,
-      payment_method: rental.payment_method,
-      start_time: toDatetimeLocal(rental.start_time),
-      end_time: toDatetimeLocal(rental.end_time),
-    })
-  }
-
-  const handleSaveRental = async () => {
-    if (!editingRental) return
-    setSaving(true)
-    const { error } = await supabase.from('rentals').update({
-      client_firstname: editRentalForm.client_firstname,
-      client_name: editRentalForm.client_name.toUpperCase(),
-      client_phone: editRentalForm.client_phone,
-      price: Number(editRentalForm.price),
-      payment_method: editRentalForm.payment_method,
-      start_time: new Date(editRentalForm.start_time).toISOString(),
-      end_time: new Date(editRentalForm.end_time).toISOString(),
-    }).eq('id', editingRental.id)
-    if (error) alert('❌ Erreur lors de la sauvegarde.')
-    else { setEditingRental(null); fetchAll() }
-    setSaving(false)
-  }
-
+  // ── Suppression location ───────────────────────────────────
   const handleDeleteRental = async (rental: Rental) => {
     const name = `${rental.client_firstname} ${rental.client_name}`
     if (!confirm(`⚠️ Supprimer définitivement la location de ${name} ?\n\nCette action est irréversible.`)) return
@@ -127,7 +93,7 @@ export default function Archives() {
     else fetchAll()
   }
 
-  // ── Édition parking ────────────────────────────────────────
+  // ── Édition parking (modal simple) ────────────────────────
   const openEditParking = (parking: ParkingRecord) => {
     setEditingParking(parking)
     setEditParkingForm({
@@ -159,77 +125,47 @@ export default function Archives() {
     else fetchAll()
   }
 
+  // ── Overlay modification complète ─────────────────────────
+  if (editingRentalFull) {
+    return (
+      <div className="fixed inset-0 bg-gray-50 z-50 overflow-y-auto">
+        <div className="max-w-2xl mx-auto px-4 py-4">
+
+          {/* Barre de navigation */}
+          <div className="flex items-center gap-3 mb-5 bg-white rounded-2xl border px-4 py-3 shadow-sm">
+            <button
+              onClick={() => setEditingRentalFull(null)}
+              className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-semibold transition-colors flex items-center gap-2"
+            >
+              ← Annuler
+            </button>
+            <div>
+              <p className="font-bold text-gray-800 text-sm">Modification complète</p>
+              <p className="text-gray-500 text-xs">
+                {editingRentalFull.client_firstname} {editingRentalFull.client_name} · {editingRentalFull.contract_number}
+              </p>
+            </div>
+          </div>
+
+          {/* Formulaire NewRental en mode modification */}
+          <NewRental
+            editRental={editingRentalFull}
+            onComplete={() => {
+              setEditingRentalFull(null)
+              fetchAll()
+            }}
+            onPause={() => setEditingRentalFull(null)}
+          />
+        </div>
+      </div>
+    )
+  }
+
   if (loading) return <div className="text-center py-16 text-gray-400">⏳ Chargement...</div>
 
   return (
     <div>
-
-      {/* ── Modal édition LOCATION ── */}
-      {editingRental && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <h3 className="text-lg font-bold text-gray-800 mb-5">✏️ Modifier la location</h3>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Prénom</label>
-                  <input type="text" value={editRentalForm.client_firstname}
-                    onChange={e => setEditRentalForm(p => ({ ...p, client_firstname: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Nom</label>
-                  <input type="text" value={editRentalForm.client_name}
-                    onChange={e => setEditRentalForm(p => ({ ...p, client_name: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Téléphone</label>
-                <input type="text" value={editRentalForm.client_phone}
-                  onChange={e => setEditRentalForm(p => ({ ...p, client_phone: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Prix ({CONFIG.currency})</label>
-                <input type="number" value={editRentalForm.price}
-                  onChange={e => setEditRentalForm(p => ({ ...p, price: Number(e.target.value) }))}
-                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Mode de paiement</label>
-                <select value={editRentalForm.payment_method}
-                  onChange={e => setEditRentalForm(p => ({ ...p, payment_method: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                  {CONFIG.paymentMethods.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">🕐 Heure de départ</label>
-                <input type="datetime-local" value={editRentalForm.start_time}
-                  onChange={e => setEditRentalForm(p => ({ ...p, start_time: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">🏁 Heure de retour</label>
-                <input type="datetime-local" value={editRentalForm.end_time}
-                  onChange={e => setEditRentalForm(p => ({ ...p, end_time: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button onClick={() => setEditingRental(null)}
-                className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200">Annuler</button>
-              <button onClick={handleSaveRental} disabled={saving}
-                className="flex-1 bg-blue-700 text-white py-3 rounded-xl font-bold hover:bg-blue-800 disabled:opacity-50">
-                {saving ? '⏳ Sauvegarde...' : '✅ Enregistrer'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Modal édition PARKING ── */}
+      {/* ── Modal édition PARKING (simple) ── */}
       {editingParking && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md">
@@ -341,7 +277,7 @@ export default function Archives() {
                     className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-blue-200">
                     📄 Contrat
                   </button>
-                  <button onClick={() => openEditRental(rental)}
+                  <button onClick={() => setEditingRentalFull(rental)}
                     className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-amber-200">
                     ✏️ Modifier
                   </button>
