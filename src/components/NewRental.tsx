@@ -587,7 +587,7 @@ export default function NewRental({ onComplete, onPause, initialFormData, initia
           <StepScheduleMulti
             cart={formData.cart}
             onComplete={handleSchedule}
-            onReservation={!isEditMode ? handleReservation : undefined}
+            onReservation={isEditMode ? () => Promise.resolve() : handleReservation}
             onBack={() => setStep(5)}
             isSubmitting={isSubmitting}
           />
