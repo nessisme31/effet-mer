@@ -83,6 +83,7 @@ export default function Analytics() {
   const [rentals, setRentals] = useState<Rental[]>([])
   const [parkings, setParkings] = useState<ParkingEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   // Affluence state
   const [affluenceView, setAffluenceView] = useState<AffluenceView>('heure')
@@ -102,7 +103,7 @@ export default function Analytics() {
       setLoading(false)
     }
     fetchAll()
-  }, [])
+  }, [refreshKey])
 
   // ── KPI : locations + parkings ─────────────────────────────
   const today     = now.toISOString().slice(0, 10)
@@ -250,7 +251,7 @@ export default function Analytics() {
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-gray-800">Tableau de bord</h2>
         <button
-          onClick={() => { setLoading(true); fetchData() }}
+          onClick={() => { setLoading(true); setRefreshKey(k => k + 1) }}
           className="flex items-center gap-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
         >
           🔄 Rafraîchir
