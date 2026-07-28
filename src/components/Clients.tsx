@@ -1,18 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { CONFIG } from '../config'
-import { Rental } from '../types'
-import { openContractPDF } from '../utils/contractHTML'
-
-interface ParkingRecord {
-  id: string
-  type: string
-  description: string | null
-  price: number
-  payment_method: string
-  status: string
-  created_at: string
-}
 
 interface ClientSummary {
   key: string
@@ -20,92 +8,38 @@ interface ClientSummary {
   firstname: string
   phone: string
   idNumber: string
-  idPhotoPath: string | null
   totalCA: number
   visits: number
   lastVisit: string
   activities: string[]
-  rentals: Rental[]
-  parkings: ParkingRecord[]   // ← Entrées parking du client
 }
-
-// ── Lien photo signé (1h) ──────────────────────────────────
-const openIdPhotoSecure = async (filePath: string, clientName: string) => {
-  const { data, error } = await supabase.storage
-    .from('id-photos')
-    .createSignedUrl(filePath, 3600)
-  if (error || !data?.signedUrl) {
-    alert('❌ Impossible de charger la photo.')
-    return
-  }
-  const url = data.signedUrl
-  const html = `<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <title>Pièce d'identité — ${clientName}</title>
-  <style>
-    body { margin: 0; background: #111; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: Arial, sans-serif; }
-    .bar { position: fixed; top: 0; left: 0; right: 0; background: #1e40af; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; z-index: 10; }
-    .bar-left span { color: white; font-weight: 600; font-size: 14px; }
-    .bar-left small { color: #93c5fd; font-size: 11px; display: block; }
-    .btn { background: white; color: #1e40af; border: none; padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; text-decoration: none; }
-    img { max-width: 95vw; max-height: 85vh; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); margin-top: 70px; }
-  </style>
-</head>
-<body>
-  <div class="bar">
-    <div class="bar-left">
-      <span>🪪 Pièce d'identité — ${clientName}</span>
-      <small>🔒 Lien sécurisé · expire dans 1 heure</small>
-    </div>
-    <a class="btn" href="${url}" download="CIN-${clientName.replace(/ /g, '-')}.jpg">⬇️ Télécharger</a>
-  </div>
-  <img src="${url}" alt="Pièce d'identité de ${clientName}" />
-</body>
-</html>`
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-  const blobUrl = URL.createObjectURL(blob)
-  const win = window.open(blobUrl, '_blank')
-  if (win) win.onload = () => setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
-}
-
-// ── Formatage date ─────────────────────────────────────────
-const fmtDate = (iso: string) =>
-  new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
-
-const fmtTime = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '--:--'
 
 export default function Clients() {
   const [clients, setClients] = useState<ClientSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [openClientKey, setOpenClientKey] = useState<string | null>(null)
 
-  useEffect(() => {
-    const fetch = async () => {
-      const [rentalsRes, parkingsRes] = await Promise.all([
-        supabase.from('rentals').select('*').order('created_at', { ascending: false }),
-        supabase.from('parkings').select('*').order('created_at', { ascending: false }),
-      ])
+  // ── Édition ───────────────────────────────────────────────
+  const [editingClient, setEditingClient] = useState<ClientSummary | null>(null)
+  const [editForm, setEditForm] = useState({ firstname: '', name: '', phone: '' })
+  const [saving, setSaving] = useState(false)
 
+  const fetchClients = async () => {
+    const { data } = await supabase
+      .from('rentals')
+      .select('client_name, client_firstname, client_phone, client_id_number, price, created_at, activity_name')
+      .order('created_at', { ascending: false })
+
+    if (data) {
       const map = new Map<string, ClientSummary>()
-
-      // ── 1. Locations ──────────────────────────────────────
-      rentalsRes.data?.forEach((r: Rental) => {
-        const key = r.client_phone?.replace(/\s/g, '') || `${r.client_name}-${r.client_firstname}`
-
+      data.forEach(r => {
+        const key = r.client_phone.replace(/\s/g, '')
         if (map.has(key)) {
           const c = map.get(key)!
           c.totalCA += r.price
           c.visits += 1
-          if (r.created_at > c.lastVisit) {
-            c.lastVisit = r.created_at
-            if (r.id_photo_url) c.idPhotoPath = r.id_photo_url
-          }
+          if (r.created_at > c.lastVisit) c.lastVisit = r.created_at
           if (!c.activities.includes(r.activity_name)) c.activities.push(r.activity_name)
-          c.rentals.push(r)
         } else {
           map.set(key, {
             key,
@@ -113,59 +47,19 @@ export default function Clients() {
             firstname: r.client_firstname,
             phone: r.client_phone,
             idNumber: r.client_id_number,
-            idPhotoPath: r.id_photo_url || null,
             totalCA: r.price,
             visits: 1,
             lastVisit: r.created_at,
             activities: [r.activity_name],
-            rentals: [r],
-            parkings: [],
           })
         }
       })
-
-      // ── 2. Parkings ───────────────────────────────────────
-      parkingsRes.data?.forEach((p: ParkingRecord) => {
-        // Clé parking = nom normalisé (pas de téléphone dans parking)
-        const name = (p as any).client_name as string
-        if (!name) return
-        const key = `PARKING-${name.toUpperCase().trim().replace(/\s+/g, '-')}`
-
-        if (map.has(key)) {
-          const c = map.get(key)!
-          c.totalCA += p.price
-          c.visits += 1
-          if (p.created_at > c.lastVisit) c.lastVisit = p.created_at
-          c.parkings.push(p)
-        } else {
-          map.set(key, {
-            key,
-            name: name.toUpperCase().trim(),
-            firstname: '',
-            phone: '',
-            idNumber: '',
-            idPhotoPath: null,
-            totalCA: p.price,
-            visits: 1,
-            lastVisit: p.created_at,
-            activities: ['🅿️ Parking'],
-            rentals: [],
-            parkings: [p],
-          })
-        }
-      })
-
-      map.forEach(c => {
-        c.rentals.sort((a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        )
-      })
-
       setClients(Array.from(map.values()).sort((a, b) => b.totalCA - a.totalCA))
-      setLoading(false)
     }
-    fetch()
-  }, [])
+    setLoading(false)
+  }
+
+  useEffect(() => { fetchClients() }, [])
 
   const filtered = clients.filter(c =>
     !search ||
@@ -175,10 +69,120 @@ export default function Clients() {
 
   const totalCA = filtered.reduce((sum, c) => sum + c.totalCA, 0)
 
+  // ── Ouvrir le modal d'édition ─────────────────────────────
+  const openEdit = (client: ClientSummary) => {
+    setEditingClient(client)
+    setEditForm({
+      firstname: client.firstname,
+      name: client.name,
+      phone: client.phone,
+    })
+  }
+
+  // ── Sauvegarder les modifications ─────────────────────────
+  // Met à jour le nom/prénom/téléphone sur TOUTES les locations de ce client
+  const handleSave = async () => {
+    if (!editingClient) return
+    setSaving(true)
+
+    const { error } = await supabase
+      .from('rentals')
+      .update({
+        client_firstname: editForm.firstname,
+        client_name: editForm.name.toUpperCase(),
+        client_phone: editForm.phone,
+      })
+      .eq('client_phone', editingClient.phone)
+
+    if (error) {
+      alert('❌ Erreur lors de la sauvegarde.')
+    } else {
+      setEditingClient(null)
+      fetchClients()
+    }
+    setSaving(false)
+  }
+
+  // ── Supprimer un client (toutes ses locations) ────────────
+  const handleDelete = async (client: ClientSummary) => {
+    const name = `${client.firstname} ${client.name}`
+    if (!confirm(`⚠️ Supprimer définitivement le client ${name} ?\n\nCela supprimera également toutes ses ${client.visits} location(s).\n\nCette action est irréversible.`)) return
+
+    const { error } = await supabase
+      .from('rentals')
+      .delete()
+      .eq('client_phone', client.phone)
+
+    if (error) {
+      alert('❌ Erreur lors de la suppression.')
+    } else {
+      fetchClients()
+    }
+  }
+
   if (loading) return <div className="text-center py-16 text-gray-400">⏳ Chargement...</div>
 
   return (
     <div>
+      {/* ── Modal d'édition ── */}
+      {editingClient && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold text-gray-800 mb-5">✏️ Modifier le client</h3>
+            <p className="text-gray-400 text-xs mb-4">
+              Les modifications s'appliqueront sur toutes les locations de ce client.
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Prénom</label>
+                <input
+                  type="text"
+                  value={editForm.firstname}
+                  onChange={e => setEditForm(p => ({ ...p, firstname: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Nom</label>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Téléphone</label>
+                <input
+                  type="text"
+                  value={editForm.phone}
+                  onChange={e => setEditForm(p => ({ ...p, phone: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setEditingClient(null)}
+                className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex-1 bg-blue-700 text-white py-3 rounded-xl font-bold hover:bg-blue-800 disabled:opacity-50"
+              >
+                {saving ? '⏳...' : '✅ Enregistrer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── En-tête ── */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">Fichier clients</h2>
@@ -196,160 +200,57 @@ export default function Clients() {
 
       <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 mb-4 flex justify-between">
         <span className="text-blue-700 text-sm font-medium">{filtered.length} client(s)</span>
-        <span className="text-blue-800 font-bold">
-          CA total : {totalCA.toLocaleString()} {CONFIG.currency}
-        </span>
+        <span className="text-blue-800 font-bold">CA total : {totalCA.toLocaleString()} {CONFIG.currency}</span>
       </div>
 
       <div className="space-y-3">
-        {filtered.map((client, i) => {
-          const isOpen = openClientKey === client.key
-
-          return (
-            <div key={client.key} className="bg-white rounded-xl border overflow-hidden hover:shadow-sm transition-shadow">
-
-              {/* ── En-tête client ── */}
-              <div className="p-4">
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-400 font-mono">#{i + 1}</span>
-                      <p className="font-semibold text-gray-800">
-                        {client.firstname} {client.name}
-                      </p>
-                    </div>
-                    {client.phone && <p className="text-gray-500 text-sm mt-0.5">{client.phone}</p>}
-                    {client.idNumber && (
-                      <p className="text-gray-400 text-xs mt-0.5">🪪 {client.idNumber}</p>
-                    )}
-                    <p className="text-gray-400 text-xs mt-1">
-                      {client.visits} visite(s) · Dernière : {fmtDate(client.lastVisit)}
-                    </p>
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {client.activities.map(act => (
-                        <span key={act} className="bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded-full">
-                          {act}
-                        </span>
-                      ))}
-                    </div>
-
-                    {/* Bouton photo CIN */}
-                    {client.idPhotoPath && (
-                      <div className="mt-2">
-                        <button
-                          onClick={() => openIdPhotoSecure(client.idPhotoPath!, `${client.firstname} ${client.name}`)}
-                          className="flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-indigo-200"
-                        >
-                          🪪 Voir la pièce d'identité 🔒
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="text-right ml-4 flex-shrink-0">
-                    <p className="font-bold text-gray-800 text-xl">
-                      {client.totalCA.toLocaleString()}
-                    </p>
-                    <p className="text-gray-500 text-xs">{CONFIG.currency} CA</p>
-                  </div>
+        {filtered.map((client, i) => (
+          <div key={client.key} className="bg-white rounded-xl border p-4 hover:shadow-sm transition-shadow">
+            <div className="flex justify-between items-start">
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 font-mono">#{i + 1}</span>
+                  <p className="font-semibold text-gray-800">
+                    {client.firstname} {client.name}
+                  </p>
                 </div>
-
-                {/* Bouton accordéon contrats */}
-                <button
-                  onClick={() => setOpenClientKey(isOpen ? null : client.key)}
-                  className="mt-3 w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 hover:bg-gray-100 rounded-xl text-sm font-semibold text-gray-700 transition-colors border border-gray-200"
-                >
-                  <span>
-                    📋 {client.visits} contrat{client.visits > 1 ? 's' : ''}
-                  </span>
-                  <span className="text-gray-400 text-lg">{isOpen ? '▲' : '▼'}</span>
-                </button>
+                <p className="text-gray-500 text-sm mt-0.5">{client.phone}</p>
+                <p className="text-gray-400 text-xs mt-1">
+                  {client.visits} visite(s) · Dernière : {new Date(client.lastVisit).toLocaleDateString('fr-FR')}
+                </p>
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {client.activities.map(act => (
+                    <span key={act} className="bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded-full">
+                      {act}
+                    </span>
+                  ))}
+                </div>
               </div>
-
-              {/* ── Liste contrats + parkings (accordéon) ── */}
-              {isOpen && (
-                <div className="border-t border-gray-100 bg-gray-50 px-4 pb-4">
-                  <div className="space-y-3 pt-3">
-
-                    {/* Locations */}
-                    {client.rentals.map((rental, ri) => (
-                      <div key={rental.id} className="bg-white rounded-xl border border-gray-200 p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2 text-xs text-gray-500">
-                            <span className="bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full">
-                              #{ri + 1}
-                            </span>
-                            <span>📅 {fmtDate(rental.created_at)}</span>
-                            {rental.start_time && (
-                              <span>⏱️ {fmtTime(rental.start_time)} → {fmtTime(rental.end_time)}</span>
-                            )}
-                          </div>
-                          <span className="font-bold text-gray-800">
-                            {rental.price.toLocaleString()} {CONFIG.currency}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2 mb-2">
-                          <span className="bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded-lg font-medium">
-                            🚤 {rental.activity_name}
-                            {rental.activity_subtype ? ` — ${rental.activity_subtype}` : ''}
-                          </span>
-                          <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-lg">
-                            {rental.payment_method}
-                          </span>
-                          {rental.jet_ski_id && (
-                            <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-lg">
-                              🚤 {rental.jet_ski_id}
-                            </span>
-                          )}
-                          <span className="bg-gray-100 text-gray-500 text-xs px-2 py-0.5 rounded-lg">
-                            📋 {rental.contract_number}
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => openContractPDF(rental)}
-                          className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-blue-200 w-full justify-center"
-                        >
-                          📄 Télécharger le contrat
-                        </button>
-                      </div>
-                    ))}
-
-                    {/* Parkings */}
-                    {client.parkings.map((p, pi) => (
-                      <div key={p.id} className="bg-gray-50 rounded-xl border border-gray-300 p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2 text-xs text-gray-500">
-                            <span className="bg-gray-200 text-gray-600 font-bold px-2 py-0.5 rounded-full">
-                              🅿️ {pi + 1}
-                            </span>
-                            <span>📅 {fmtDate(p.created_at)}</span>
-                          </div>
-                          <span className="font-bold text-gray-800">
-                            {p.price.toLocaleString()} {CONFIG.currency}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-lg font-medium">
-                            🅿️ {p.type}
-                          </span>
-                          {p.description && (
-                            <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-lg">
-                              📝 {p.description}
-                            </span>
-                          )}
-                          <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-lg">
-                            {p.payment_method}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-
-                  </div>
-                </div>
-              )}
+              <div className="text-right ml-4">
+                <p className="font-bold text-gray-800 text-xl">
+                  {client.totalCA.toLocaleString()}
+                </p>
+                <p className="text-gray-500 text-xs">{CONFIG.currency} CA</p>
+              </div>
             </div>
-          )
-        })}
+
+            {/* ── Actions ── */}
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={() => openEdit(client)}
+                className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-amber-200"
+              >
+                ✏️ Modifier
+              </button>
+              <button
+                onClick={() => handleDelete(client)}
+                className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors border border-red-200"
+              >
+                🗑️ Supprimer
+              </button>
+            </div>
+          </div>
+        ))}
 
         {filtered.length === 0 && (
           <div className="text-center py-12 text-gray-400">
