@@ -43,6 +43,7 @@ export default function Clients() {
   const [clients, setClients] = useState<ClientSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [dateFilter, setDateFilter] = useState('')
 
   // ── Édition ───────────────────────────────────────────────
   const [editingClient, setEditingClient] = useState<ClientSummary | null>(null)
@@ -160,11 +161,13 @@ export default function Clients() {
 
   useEffect(() => { fetchClients() }, [])
 
-  const filtered = clients.filter(c =>
-    !search ||
-    `${c.firstname} ${c.name}`.toLowerCase().includes(search.toLowerCase()) ||
-    c.phone.includes(search)
-  )
+  const filtered = clients.filter(c => {
+    const nameMatch = !search ||
+      `${c.firstname} ${c.name}`.toLowerCase().includes(search.toLowerCase()) ||
+      c.phone.includes(search)
+    const dateMatch = !dateFilter || c.lastVisit.startsWith(dateFilter)
+    return nameMatch && dateMatch
+  })
 
   const totalCA = filtered.reduce((sum, c) => sum + c.totalCA, 0)
 
@@ -311,9 +314,28 @@ export default function Clients() {
         </div>
       </div>
 
-      <input type="text" placeholder="🔍 Rechercher un client..."
-        value={search} onChange={e => setSearch(e.target.value)}
-        className="w-full border border-gray-300 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 mb-4 text-sm" />
+      {/* ── Filtres ── */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-4 mb-4 space-y-3">
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">🔍 Recherche par nom</label>
+            <input type="text" placeholder="Nom, prénom ou téléphone..."
+              value={search} onChange={e => setSearch(e.target.value)}
+              className="w-full border border-gray-300 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">📅 Dernière visite</label>
+            <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
+              className="border border-gray-300 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+          </div>
+        </div>
+        {(search || dateFilter) && (
+          <button onClick={() => { setSearch(''); setDateFilter('') }}
+            className="text-xs text-red-500 hover:text-red-700 font-semibold flex items-center gap-1">
+            ✕ Effacer les filtres
+          </button>
+        )}
+      </div>
 
       <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 mb-4 flex justify-between">
         <span className="text-blue-700 text-sm font-medium">{filtered.length} client(s)</span>
