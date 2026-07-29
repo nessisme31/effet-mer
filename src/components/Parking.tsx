@@ -43,6 +43,7 @@ export default function Parking() {
   const [clientName, setClientName] = useState('')
   const [description, setDescription] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('')
+  const [customPrice, setCustomPrice] = useState('')
 
   const fetchParkings = async () => {
     const { data } = await supabase
@@ -63,15 +64,17 @@ export default function Parking() {
     setClientName('')
     setDescription('')
     setPaymentMethod('')
+    setCustomPrice('')
     setShowForm(false)
   }
 
   const handleSave = async () => {
-    if (!clientName.trim() || !paymentMethod) return
+    const priceNum = parseFloat(customPrice)
+    if (!clientName.trim() || !paymentMethod || isNaN(priceNum) || priceNum <= 0) return
     setSaving(true)
     const { error } = await supabase.from('parkings').insert({
       type: selectedType.label,
-      price: selectedType.price,
+      price: priceNum,
       client_name: clientName.trim().toUpperCase(),
       description: description.trim() || null,
       payment_method: paymentMethod,
@@ -101,7 +104,7 @@ export default function Parking() {
     fetchParkings()
   }
 
-  const canSave = clientName.trim().length > 0 && paymentMethod.length > 0
+  const canSave = clientName.trim().length > 0 && paymentMethod.length > 0 && parseFloat(customPrice) > 0
 
   if (loading) return <div className="text-center py-16 text-gray-400">⏳ Chargement...</div>
 
@@ -145,9 +148,30 @@ export default function Parking() {
                 >
                   <span className="text-xl">{type.icon}</span>
                   <span>{type.label}</span>
-                  <span className="ml-auto font-bold text-blue-700">{type.price} {CONFIG.currency}</span>
+                  {selectedType.id === type.id && <span className="ml-auto text-blue-500">✓</span>}
                 </button>
               ))}
+            </div>
+
+            {/* Prix libre */}
+            <div className="mt-3">
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">
+                💰 Prix à encaisser ({CONFIG.currency})
+              </label>
+              <div className="flex items-center border-2 border-gray-300 rounded-xl overflow-hidden focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-200">
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="ex: 300"
+                  value={customPrice}
+                  onChange={e => setCustomPrice(e.target.value)}
+                  className="flex-1 px-4 py-3 text-lg font-bold text-gray-800 outline-none bg-white"
+                />
+                <span className="px-4 text-gray-400 font-semibold bg-gray-50 border-l border-gray-200 py-3">
+                  {CONFIG.currency}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -217,7 +241,9 @@ export default function Parking() {
             <div className="bg-green-50 border border-green-200 rounded-xl p-3 mb-4 flex items-center gap-3">
               <span className="text-2xl">✅</span>
               <div className="text-sm text-green-800">
-                <strong>{clientName.toUpperCase()}</strong> · {selectedType.label} · {selectedType.price} {CONFIG.currency} · {paymentMethod}
+                <strong>{clientName.toUpperCase()}</strong> · {selectedType.label} ·{' '}
+                <span className="font-bold text-green-700 text-base">{parseFloat(customPrice).toLocaleString()} {CONFIG.currency}</span>{' '}
+                · {paymentMethod}
               </div>
             </div>
           )}
