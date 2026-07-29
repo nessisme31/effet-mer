@@ -277,7 +277,10 @@ export default function ActiveRentals({ onNewRental }: Props) {
     if (!payingRental || !method) return
     const { error } = await supabase
       .from('rentals')
-      .update({ payment_method: method })
+      .update({
+        payment_method: method,
+        status: 'archived',   // ← ferme et archive la location au moment du paiement
+      })
       .eq('id', payingRental.id)
     if (error) { alert('❌ Erreur lors du paiement.'); return }
     setPayingRental(null)
@@ -352,13 +355,24 @@ export default function ActiveRentals({ onNewRental }: Props) {
     const newJetSkiId = stillActiveJets.length > 0 ? stillActiveJets.join(',') : null
 
     if (allReturned) {
-      // Tout est rendu → archiver
-      await supabase.from('rentals').update({
-        cart_items: updatedCart,
-        status: 'archived',
-        returned_cart_ids: returnedIds,
-        jet_ski_id: null,   // plus de jets actifs
-      }).eq('id', rental.id)
+      if (rental.payment_method === PENDING_PAYMENT) {
+        // ── Paiement en attente : on libère le jet mais on GARDE la carte visible ──
+        // La carte disparaîtra seulement quand l'utilisateur cliquera sur "💳 Payer"
+        await supabase.from('rentals').update({
+          cart_items: updatedCart,
+          returned_cart_ids: returnedIds,
+          jet_ski_id: null,   // ← jet libéré, disponible pour d'autres
+          // status reste 'active' → carte toujours visible en orange
+        }).eq('id', rental.id)
+      } else {
+        // ── Tout est rendu ET payé → archiver normalement ──
+        await supabase.from('rentals').update({
+          cart_items: updatedCart,
+          status: 'archived',
+          returned_cart_ids: returnedIds,
+          jet_ski_id: null,
+        }).eq('id', rental.id)
+      }
 
       // Vérifier file d'attente pour le jet libéré
       if (returnedItem?.assignedJetSkiId) {
@@ -626,11 +640,21 @@ export default function ActiveRentals({ onNewRental }: Props) {
                   <div key={rental.id} className={`bg-white rounded-2xl shadow-sm border-2 p-5 ${
                     isPendingPayment ? 'border-orange-400' : isOverdue ? 'border-red-300' : 'border-gray-100'
                   }`}>
-                    {isPendingPayment && (
-                      <div className="bg-orange-50 text-orange-700 text-xs font-semibold px-3 py-1 rounded-lg mb-3 inline-flex items-center gap-1.5">
-                        ⏳ Paiement en attente · {rental.price.toLocaleString()} {CONFIG.currency}
-                      </div>
-                    )}
+                    {isPendingPayment && (() => {
+                      const cartItems2: CartItem[] = rental.cart_items ?? []
+                      const allJetsReturned = cartItems2.length > 0 && cartItems2.every(i => i.itemStatus === 'returned')
+                      return (
+                        <div className={`text-xs font-semibold px-3 py-1.5 rounded-lg mb-3 inline-flex items-center gap-1.5 ${
+                          allJetsReturned
+                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                            : 'bg-orange-50 text-orange-700'
+                        }`}>
+                          {allJetsReturned
+                            ? '✅ Jet rendu · 💳 En attente du paiement'
+                            : `⏳ Paiement en attente · ${rental.price.toLocaleString()} ${CONFIG.currency}`}
+                        </div>
+                      )
+                    })()}
                     {isOverdue && !isPendingPayment && (
                       <div className="bg-red-50 text-red-600 text-xs font-semibold px-3 py-1 rounded-lg mb-3 inline-block">⚠️ Dépassement horaire</div>
                     )}
