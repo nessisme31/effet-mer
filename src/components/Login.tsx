@@ -44,8 +44,13 @@ export default function Login() {
 
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="text-6xl mb-4">⚓</div>
-          <h1 className="text-3xl font-bold text-blue-800">{CONFIG.businessName}</h1>
+          <div className="flex justify-center mb-4">
+            <img
+              src="/Logo-Wavely-Bleu.png"
+              alt="Wavely Watersports"
+              className="h-28 w-auto"
+            />
+          </div>
           <p className="text-gray-500 mt-2 text-sm">Gestion des locations nautiques</p>
           <p className="text-gray-400 text-xs mt-1">{CONFIG.location}</p>
         </div>
