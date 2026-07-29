@@ -132,6 +132,17 @@ export default function Step2Client({ onNext, onBack, onPartialChange, initialDa
     })
   }
 
+  // ── Worker Tesseract mis en cache (créé une seule fois) ──────
+  // Évite de re-télécharger les données OCR à chaque photo
+  const tesseractWorkerRef = useRef<import('tesseract.js').Worker | null>(null)
+
+  // Nettoyage du worker quand le composant se démonte
+  useEffect(() => {
+    return () => {
+      tesseractWorkerRef.current?.terminate()
+    }
+  }, [])
+
   // ── Upload photo + OCR numéro CIN en parallèle ────────────
   const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -160,23 +171,60 @@ export default function Step2Client({ onNext, onBack, onPartialChange, initialDa
         setUploadingPhoto(false)
       })(),
 
-      // 2. OCR — lecture du numéro CIN en parallèle
+      // 2. OCR — lecture du numéro CIN/Passeport/Permis en parallèle
       (async () => {
         try {
           const objectUrl = URL.createObjectURL(file)
-          // Import dynamique pour ne pas alourdir le chargement initial
+
+          // ── Import dynamique (une seule fois) ──
           const Tesseract = await import('tesseract.js')
-          const { data } = await Tesseract.recognize(objectUrl, 'fra+eng', {
-            logger: () => {},   // silence les logs
-          })
+
+          // ── Réutilise le worker existant ou en crée un nouveau ──
+          // → évite de re-télécharger ~20Mo de données à chaque photo
+          if (!tesseractWorkerRef.current) {
+            const worker = await Tesseract.createWorker('eng', 1, {
+              // Pas de logs pour ne pas bloquer
+            })
+            // Restreindre aux caractères alphanumériques uniquement → OCR 5x plus rapide
+            await worker.setParameters({
+              tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+              tessedit_pageseg_mode: '11' as any,  // SPARSE_TEXT : cherche du texte partout
+            })
+            tesseractWorkerRef.current = worker
+          }
+
+          // ── Timeout 20s : si ça dure trop longtemps, on abandonne ──
+          const ocrWithTimeout = Promise.race([
+            tesseractWorkerRef.current.recognize(objectUrl),
+            new Promise<null>((_, reject) =>
+              setTimeout(() => reject(new Error('timeout')), 20000)
+            ),
+          ])
+
+          const result = await ocrWithTimeout
           URL.revokeObjectURL(objectUrl)
 
-          const text = data.text.toUpperCase().replace(/\n/g, ' ')
+          if (!result) throw new Error('timeout')
 
-          // Pattern CIN Maroc : 1-2 lettres majuscules + 5-6 chiffres (ex: B123456, AB123456)
-          const match = text.match(/\b([A-Z]{1,2}\d{5,6})\b/)
-          if (match?.[1]) {
-            const detected = match[1]
+          const text = (result as Awaited<ReturnType<typeof tesseractWorkerRef.current.recognize>>).data.text
+            .toUpperCase().replace(/\n/g, ' ')
+
+          // ── Patterns de numéros de documents ──
+          // CIN Maroc    : 1-2 lettres + 5-6 chiffres  → ex: B123456, AB123456
+          // Passeport FR : 2 lettres + 7 chiffres       → ex: AB1234567
+          // Permis FR    : 1 lettre + 2 chiffres + ...  → ex: A-123456-78
+          const patterns = [
+            /\b([A-Z]{1,2}\d{5,7})\b/,      // CIN Maroc + Passeport
+            /\b([A-Z]\d{2}[A-Z0-9]{5,8})\b/, // Formats mixtes
+          ]
+
+          let detected: string | null = null
+          for (const pattern of patterns) {
+            const match = text.match(pattern)
+            if (match?.[1]) { detected = match[1]; break }
+          }
+
+          if (detected) {
             setClientIdNumber(detected)
             notify({ clientIdNumber: detected })
             setOcrStatus('found')
@@ -184,7 +232,8 @@ export default function Step2Client({ onNext, onBack, onPartialChange, initialDa
             setOcrStatus('not_found')
           }
         } catch (err) {
-          console.error('OCR error:', err)
+          const isTimeout = err instanceof Error && err.message === 'timeout'
+          if (!isTimeout) console.error('OCR error:', err)
           setOcrStatus('not_found')
         }
         setOcrLoading(false)
