@@ -92,6 +92,9 @@ export default function Analytics() {
   const [selectedMonth, setSelectedMonth] = useState(now.toISOString().slice(0, 7))
   const [selectedYear, setSelectedYear] = useState(String(now.getFullYear()))
 
+  // Paiement : filtre par jour (défaut = aujourd'hui)
+  const [payDate, setPayDate] = useState(now.toISOString().slice(0, 10))
+
   useEffect(() => {
     const fetchAll = async () => {
       const [rentalsRes, parkingsRes] = await Promise.all([
@@ -195,10 +198,14 @@ export default function Analytics() {
     return `${h}h${String(m).padStart(2, '0')}`
   }
 
-  // ── Paiements (locations + parkings) ──────────────────────
+  // ── Paiements : filtré par jour sélectionné ───────────────
+  const payDayRentals  = rentals.filter(r => r.created_at.startsWith(payDate))
+  const payDayParkings = parkings.filter(p => p.created_at.startsWith(payDate))
   const payMap: Record<string, number> = {}
-  rentals.forEach(r => { payMap[r.payment_method] = (payMap[r.payment_method] || 0) + r.price })
-  parkings.forEach(p => { payMap[p.payment_method] = (payMap[p.payment_method] || 0) + p.price })
+  payDayRentals.forEach(r  => { payMap[r.payment_method] = (payMap[r.payment_method] || 0) + r.price })
+  payDayParkings.forEach(p => { payMap[p.payment_method] = (payMap[p.payment_method] || 0) + p.price })
+  const payDayTotal = payDayRentals.reduce((s, r) => s + r.price, 0)
+                    + payDayParkings.reduce((s, p) => s + p.price, 0)
 
   // ── Affluence : Vue HEURE ─────────────────────────────────
   const hourData = HOURS.map(h => {
@@ -511,29 +518,67 @@ export default function Analytics() {
 
       {/* ── Paiements ── */}
       <div className="bg-white rounded-2xl border p-5 shadow-sm">
-        <h3 className="font-bold text-gray-800 mb-4">💳 CA par mode de paiement</h3>
-        <p className="text-xs text-gray-400 mb-3">Locations + Parkings</p>
-        <div className="space-y-2">
-          {CONFIG.paymentMethods.map(method => {
-            const amount = payMap[method] || 0
-            const pct = caTotal > 0 ? (amount / caTotal * 100) : 0
-            const icons: Record<string, string> = { 'Espèces': '💵', 'Carte bancaire': '💳', 'Virement': '🏦' }
-            return (
-              <div key={method} className="flex items-center gap-3">
-                <span className="text-xl w-8">{icons[method] || '💰'}</span>
-                <div className="flex-1">
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-gray-700">{method}</span>
-                    <span className="font-medium">{amount.toLocaleString()} {CONFIG.currency}</span>
-                  </div>
-                  <div className="h-1.5 bg-gray-100 rounded-full">
-                    <div className="h-1.5 bg-green-500 rounded-full" style={{ width: `${pct}%` }} />
+        <h3 className="font-bold text-gray-800 mb-3">💳 CA par mode de paiement</h3>
+
+        {/* Sélecteur de date */}
+        <div className="flex items-center gap-2 mb-4">
+          <input
+            type="date"
+            value={payDate}
+            onChange={e => setPayDate(e.target.value)}
+            className="border border-gray-300 rounded-xl px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-green-500"
+          />
+          <button
+            onClick={() => setPayDate(now.toISOString().slice(0, 10))}
+            className="text-xs text-blue-600 hover:text-blue-800 font-semibold px-2 py-1 bg-blue-50 rounded-lg"
+          >
+            Aujourd'hui
+          </button>
+          <span className="ml-auto text-xs text-gray-400">
+            {new Date(payDate + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </span>
+        </div>
+
+        {/* Total du jour */}
+        <div className="bg-green-50 border border-green-100 rounded-xl px-4 py-2.5 mb-4 flex justify-between items-center">
+          <span className="text-green-700 text-sm font-medium">
+            Total du jour · {payDayRentals.length + payDayParkings.length} opération(s)
+          </span>
+          <span className="text-green-800 font-bold text-lg">{payDayTotal.toLocaleString()} {CONFIG.currency}</span>
+        </div>
+
+        {payDayTotal === 0 ? (
+          <div className="text-center py-6 text-gray-400">
+            <div className="text-3xl mb-2">📭</div>
+            <p className="text-sm">Aucune opération ce jour-là</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {CONFIG.paymentMethods.map(method => {
+              const amount = payMap[method] || 0
+              const pct = payDayTotal > 0 ? (amount / payDayTotal * 100) : 0
+              const icons: Record<string, string> = { 'Espèces': '💵', 'Carte bancaire': '💳', 'Virement': '🏦' }
+              if (amount === 0) return null
+              return (
+                <div key={method} className="flex items-center gap-3">
+                  <span className="text-xl w-8">{icons[method] || '💰'}</span>
+                  <div className="flex-1">
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-gray-700 font-medium">{method}</span>
+                      <div className="text-right">
+                        <span className="font-bold text-gray-800">{amount.toLocaleString()} {CONFIG.currency}</span>
+                        <span className="text-gray-400 text-xs ml-2">{pct.toFixed(0)}%</span>
+                      </div>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-2 bg-green-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                    </div>
                   </div>
                 </div>
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )
