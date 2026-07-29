@@ -5,6 +5,13 @@ import { Rental } from '../types'
 import { openContractPDF } from '../utils/contractHTML'
 import NewRental from './NewRental'
 
+// ── Ouvrir la photo CIN (URL signée Supabase Storage, 60s) ──
+async function openIdPhoto(path: string) {
+  const { data, error } = await supabase.storage.from('id-photos').createSignedUrl(path, 60)
+  if (error || !data?.signedUrl) { alert('❌ Impossible d\'ouvrir la photo.'); return }
+  window.open(data.signedUrl, '_blank')
+}
+
 // ── Types ──────────────────────────────────────────────────────
 interface ParkingRecord {
   id: string
@@ -277,6 +284,12 @@ export default function Archives() {
                     className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-blue-200">
                     📄 Contrat
                   </button>
+                  {rental.id_photo_url && (
+                    <button onClick={() => openIdPhoto(rental.id_photo_url!)}
+                      className="flex items-center gap-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-purple-200">
+                      📷 Photo CIN
+                    </button>
+                  )}
                   <button onClick={() => setEditingRentalFull(rental)}
                     className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-amber-200">
                     ✏️ Modifier
