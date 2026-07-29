@@ -82,11 +82,12 @@ export default function Layout({ currentPage, setCurrentPage }: Props) {
       <header className="bg-blue-800 text-white shadow-lg">
         <div className="max-w-5xl mx-auto px-4 py-3 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <span className="text-2xl">⚓</span>
-            <div>
-              <h1 className="text-xl font-bold leading-tight">{CONFIG.businessName}</h1>
-              <p className="text-blue-300 text-xs">{CONFIG.location}</p>
-            </div>
+            <img
+              src="/Logo-Wavely-Blanc.png"
+              alt="Wavely Watersports"
+              className="h-10 w-auto"
+            />
+            <p className="text-blue-300 text-xs hidden sm:block">{CONFIG.location}</p>
           </div>
           <button
             onClick={handleLogout}
