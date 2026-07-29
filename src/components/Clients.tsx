@@ -3,10 +3,20 @@ import { supabase } from '../lib/supabase'
 import { CONFIG } from '../config'
 
 // ── Ouvrir/télécharger une photo CIN depuis Supabase Storage ──
+// On ouvre la fenêtre IMMÉDIATEMENT pour éviter le bloqueur de popups du navigateur.
 async function openIdPhoto(path: string) {
+  const win = window.open('', '_blank')
   const { data, error } = await supabase.storage.from('id-photos').createSignedUrl(path, 60)
-  if (error || !data?.signedUrl) { alert('❌ Impossible d\'ouvrir la photo.'); return }
-  window.open(data.signedUrl, '_blank')
+  if (error || !data?.signedUrl) {
+    win?.close()
+    alert('❌ Impossible d\'ouvrir la photo.')
+    return
+  }
+  if (win) {
+    win.location.href = data.signedUrl
+  } else {
+    window.location.href = data.signedUrl
+  }
 }
 
 interface PhotoEntry {
