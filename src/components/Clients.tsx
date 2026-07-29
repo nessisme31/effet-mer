@@ -2,6 +2,19 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { CONFIG } from '../config'
 
+// ── Ouvrir/télécharger une photo CIN depuis Supabase Storage ──
+async function openIdPhoto(path: string) {
+  const { data, error } = await supabase.storage.from('id-photos').createSignedUrl(path, 60)
+  if (error || !data?.signedUrl) { alert('❌ Impossible d\'ouvrir la photo.'); return }
+  window.open(data.signedUrl, '_blank')
+}
+
+interface PhotoEntry {
+  contract_number: string
+  created_at: string
+  id_photo_url: string
+}
+
 interface ClientSummary {
   key: string
   name: string
@@ -25,6 +38,24 @@ export default function Clients() {
   const [editingClient, setEditingClient] = useState<ClientSummary | null>(null)
   const [editForm, setEditForm] = useState({ firstname: '', name: '', phone: '' })
   const [saving, setSaving] = useState(false)
+
+  // ── Photos CIN du client ───────────────────────────────────
+  const [photosClient, setPhotosClient] = useState<ClientSummary | null>(null)
+  const [photoEntries, setPhotoEntries] = useState<PhotoEntry[]>([])
+  const [loadingPhotos, setLoadingPhotos] = useState(false)
+
+  const openClientPhotos = async (client: ClientSummary) => {
+    setPhotosClient(client)
+    setLoadingPhotos(true)
+    const { data } = await supabase
+      .from('rentals')
+      .select('contract_number, created_at, id_photo_url')
+      .eq('client_phone', client.phone)
+      .not('id_photo_url', 'is', null)
+      .order('created_at', { ascending: false })
+    setPhotoEntries((data || []) as PhotoEntry[])
+    setLoadingPhotos(false)
+  }
 
   const fetchClients = async () => {
     // Récupère locations ET parkings en parallèle
@@ -177,6 +208,47 @@ export default function Clients() {
 
   return (
     <div>
+      {/* ── Modal photos CIN ── */}
+      {photosClient && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold text-gray-800 mb-1">📷 Photos CIN</h3>
+            <p className="text-gray-500 text-sm mb-4">
+              {photosClient.firstname} {photosClient.name}
+            </p>
+            {loadingPhotos ? (
+              <p className="text-center text-gray-400 py-4">⏳ Chargement...</p>
+            ) : photoEntries.length === 0 ? (
+              <p className="text-center text-gray-400 py-4">Aucune photo enregistrée</p>
+            ) : (
+              <div className="space-y-2 mb-4">
+                {photoEntries.map((entry, i) => (
+                  <button
+                    key={i}
+                    onClick={() => openIdPhoto(entry.id_photo_url)}
+                    className="w-full flex items-center justify-between bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl px-4 py-3 transition-colors"
+                  >
+                    <div className="text-left">
+                      <p className="text-purple-800 font-semibold text-sm">📋 {entry.contract_number}</p>
+                      <p className="text-purple-500 text-xs">
+                        {new Date(entry.created_at).toLocaleDateString('fr-FR')}
+                      </p>
+                    </div>
+                    <span className="text-purple-600 text-sm font-bold">⬇️ Voir</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={() => { setPhotosClient(null); setPhotoEntries([]) }}
+              className="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200"
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Modal édition ── */}
       {editingClient && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -270,7 +342,13 @@ export default function Clients() {
                 <p className="text-gray-500 text-xs">{CONFIG.currency} CA</p>
               </div>
             </div>
-            <div className="mt-3 flex gap-2">
+            <div className="mt-3 flex gap-2 flex-wrap">
+              {client.hasPhone && (
+                <button onClick={() => openClientPhotos(client)}
+                  className="flex items-center gap-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-purple-200">
+                  📷 Photos CIN
+                </button>
+              )}
               <button onClick={() => openEdit(client)}
                 className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-amber-200">
                 ✏️ Modifier
