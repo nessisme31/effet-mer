@@ -18,6 +18,19 @@ interface Props {
   onSaved: () => void
 }
 
+// ── Helpers ────────────────────────────────────────────────
+const toTime = (iso: string | null | undefined): string => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+const addMinutes = (timeStr: string, mins: number): string => {
+  const [h, m] = timeStr.split(':').map(Number)
+  const total = h * 60 + m + mins
+  return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}
+
 // ── Signature Pad ───────────────────────────────────────────
 function SignaturePad({ onSign }: { onSign: (sig: string) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -29,31 +42,24 @@ function SignaturePad({ onSign }: { onSign: (sig: string) => void }) {
     const src  = 'touches' in e ? e.touches[0] : e
     return { x: src.clientX - rect.left, y: src.clientY - rect.top }
   }
-
   const start = (e: React.MouseEvent | React.TouchEvent) => {
-    const canvas = canvasRef.current!
-    const ctx    = canvas.getContext('2d')!
-    const pos    = getPos(e, canvas)
+    const ctx = canvasRef.current!.getContext('2d')!
+    const pos = getPos(e, canvasRef.current!)
     ctx.beginPath(); ctx.moveTo(pos.x, pos.y)
     drawing.current = true
   }
-
   const draw = (e: React.MouseEvent | React.TouchEvent) => {
     if (!drawing.current) return
     e.preventDefault()
-    const canvas = canvasRef.current!
-    const ctx    = canvas.getContext('2d')!
-    const pos    = getPos(e, canvas)
+    const ctx = canvasRef.current!.getContext('2d')!
+    const pos = getPos(e, canvasRef.current!)
     ctx.lineTo(pos.x, pos.y)
     ctx.strokeStyle = '#1d4ed8'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.stroke()
   }
-
   const stop = () => {
     drawing.current = false
-    const sig = canvasRef.current!.toDataURL('image/png')
-    setSigned(true); onSign(sig)
+    setSigned(true); onSign(canvasRef.current!.toDataURL('image/png'))
   }
-
   const clear = () => {
     canvasRef.current!.getContext('2d')!.clearRect(0, 0, 500, 140)
     setSigned(false); onSign('')
@@ -65,8 +71,7 @@ function SignaturePad({ onSign }: { onSign: (sig: string) => void }) {
         <canvas ref={canvasRef} width={500} height={140}
           className="w-full touch-none cursor-crosshair" style={{ maxHeight: 140 }}
           onMouseDown={start} onMouseMove={draw} onMouseUp={stop} onMouseLeave={stop}
-          onTouchStart={start} onTouchMove={draw} onTouchEnd={stop}
-        />
+          onTouchStart={start} onTouchMove={draw} onTouchEnd={stop} />
       </div>
       <div className="flex justify-between items-center mt-1.5">
         <span className={`text-xs font-medium ${signed ? 'text-green-600' : 'text-gray-400'}`}>
@@ -89,7 +94,7 @@ export default function EditRentalModal({ rental, onClose, onSaved }: Props) {
   const [signature,       setSignature]       = useState('')
   const [saving,          setSaving]          = useState(false)
 
-  // Panier — initialisé depuis cart_items ou depuis l'activité principale
+  // Panier
   const initCart = (): CartItem[] => {
     if (rental.cart_items && rental.cart_items.length > 0) return rental.cart_items
     const activity = CONFIG.activities.find(a => a.id === rental.activity_id)
@@ -98,21 +103,58 @@ export default function EditRentalModal({ rental, onClose, onSaved }: Props) {
       cartId: newCartId(), activity,
       subtype: rental.activity_subtype || undefined,
       itemPrice: rental.price,
+      itemStartTime: rental.start_time,
+      itemEndTime: rental.end_time,
     }]
     return []
   }
-
   const [cart, setCart] = useState<CartItem[]>(initCart)
 
-  // Jet ski
-  const [jetSkiId,   setJetSkiId]   = useState(rental.jet_ski_id || '')
-  const [rentalMap,  setRentalMap]  = useState<Record<string, string>>({}) // jetId → client name
+  // ── Jets : un par activité jet ski (cartId → jetId) ──────
+  const initJetAssignments = (): Record<string, string> => {
+    const result: Record<string, string> = {}
+    const initialCart = initCart()
+    initialCart.forEach(item => {
+      if (item.activity.requiresJetSki && item.assignedJetSkiId) {
+        result[item.cartId] = item.assignedJetSkiId
+      }
+    })
+    // Fallback : si jet_ski_id existe et 1 seule activité jet
+    if (Object.keys(result).length === 0 && rental.jet_ski_id) {
+      const jetIds = rental.jet_ski_id.split(',').map(s => s.trim())
+      const jetItems = initialCart.filter(i => i.activity.requiresJetSki)
+      jetItems.forEach((item, idx) => {
+        if (jetIds[idx]) result[item.cartId] = jetIds[idx]
+      })
+    }
+    return result
+  }
+  const [jetAssignments, setJetAssignments] = useState<Record<string, string>>(initJetAssignments)
+
+  // ── Horaires : un par activité (cartId → { start, end }) ─
+  const baseDate = rental.start_time
+    ? new Date(rental.start_time).toISOString().slice(0, 10)
+    : new Date().toISOString().slice(0, 10)
+
+  const initSchedules = (): Record<string, { start: string; end: string }> => {
+    const result: Record<string, { start: string; end: string }> = {}
+    const initialCart = initCart()
+    initialCart.forEach(item => {
+      result[item.cartId] = {
+        start: toTime(item.itemStartTime) || toTime(rental.start_time) || '',
+        end:   toTime(item.itemEndTime)   || toTime(rental.end_time)   || '',
+      }
+    })
+    return result
+  }
+  const [schedules, setSchedules] = useState<Record<string, { start: string; end: string }>>(initSchedules)
 
   // Ajout d'une activité
   const [addActivityId, setAddActivityId] = useState('')
   const [addSubtype,    setAddSubtype]    = useState('')
 
-  // Charger jets occupés (sauf la location actuelle)
+  // Jets occupés par d'autres locations (sauf celle-ci)
+  const [rentalMap, setRentalMap] = useState<Record<string, string>>({})
   useEffect(() => {
     supabase
       .from('rentals')
@@ -122,15 +164,19 @@ export default function EditRentalModal({ rental, onClose, onSaved }: Props) {
       .neq('id', rental.id)
       .then(({ data }) => {
         const map: Record<string, string> = {}
-        data?.forEach(r => { if (r.jet_ski_id) map[r.jet_ski_id] = `${r.client_firstname} ${r.client_name}` })
+        data?.forEach(r => {
+          r.jet_ski_id?.split(',').forEach((id: string) => {
+            map[id.trim()] = `${r.client_firstname} ${r.client_name}`
+          })
+        })
         setRentalMap(map)
       })
   }, [rental.id])
 
   const totalPrice = cart.reduce((sum, item) => sum + item.itemPrice, 0)
-  const hasJetActivity = cart.some(item => item.activity.requiresJetSki)
+  const jetSkiItems = cart.filter(item => item.activity.requiresJetSki)
+  const hasJetActivity = jetSkiItems.length > 0
 
-  // Grouper activités pour le sélecteur
   const grouped = CONFIG.activities.reduce((acc, act) => {
     if (!acc[act.name]) acc[act.name] = []
     acc[act.name].push(act)
@@ -142,52 +188,100 @@ export default function EditRentalModal({ rental, onClose, onSaved }: Props) {
   // Ajouter au panier
   const handleAddActivity = () => {
     if (!selectedNewActivity) return
-    if (selectedNewActivity.hasSubtype && !addSubtype) {
-      alert('Veuillez choisir un type de bouée')
-      return
-    }
+    if (selectedNewActivity.hasSubtype && !addSubtype) { alert('Choisissez un type de bouée'); return }
+    const newId = newCartId()
     setCart(prev => [...prev, {
-      cartId: newCartId(),
+      cartId: newId,
       activity: selectedNewActivity,
       subtype: addSubtype || undefined,
       itemPrice: selectedNewActivity.price,
+      itemStartTime: null,
+      itemEndTime: null,
     }])
+    // Initialise horaires vides pour ce nouvel item
+    setSchedules(prev => ({ ...prev, [newId]: { start: '', end: '' } }))
     setAddActivityId('')
     setAddSubtype('')
   }
 
-  // Supprimer du panier
   const handleRemoveItem = (cartId: string) => {
     setCart(prev => prev.filter(i => i.cartId !== cartId))
+    setJetAssignments(prev => { const c = { ...prev }; delete c[cartId]; return c })
+    setSchedules(prev => { const c = { ...prev }; delete c[cartId]; return c })
   }
+
+  // Assign jet for a specific item
+  const assignJet = (cartId: string, jetId: string) => {
+    setJetAssignments(prev => ({
+      ...prev,
+      [cartId]: prev[cartId] === jetId ? '' : jetId,  // toggle
+    }))
+  }
+
+  // Auto-calculer l'heure de fin à partir du début
+  const autoEnd = (cartId: string, item: CartItem) => {
+    const start = schedules[cartId]?.start
+    if (!start) return
+    const endTime = addMinutes(start, item.activity.durationMinutes)
+    setSchedules(prev => ({ ...prev, [cartId]: { ...prev[cartId], end: endTime } }))
+  }
+
+  // Jets déjà assignés dans CETTE location (pour éviter doublons)
+  const allAssigned = Object.values(jetAssignments).filter(Boolean)
+
+  const allJetsAssigned = jetSkiItems.every(item => !!jetAssignments[item.cartId])
 
   const canSave = clientName.trim() && clientFirstname.trim() && cart.length > 0
     && paymentMethod && signature.trim()
-    && (!hasJetActivity || jetSkiId)
+    && (!hasJetActivity || allJetsAssigned)
 
   const handleSave = async () => {
     if (!canSave) {
-      if (!signature.trim()) {
-        alert('⚠️ La signature du client est obligatoire pour valider les modifications.')
-      } else if (hasJetActivity && !jetSkiId) {
-        alert('⚠️ Veuillez sélectionner un jet ski.')
-      } else {
-        alert('⚠️ Veuillez remplir tous les champs obligatoires.')
-      }
-      return
+      if (!signature.trim()) { alert('⚠️ La signature du client est obligatoire.'); return }
+      if (hasJetActivity && !allJetsAssigned) { alert('⚠️ Assignez un jet ski à chaque activité jet ski.'); return }
+      alert('⚠️ Remplissez tous les champs obligatoires.'); return
     }
     setSaving(true)
     try {
-      const activityNames = cart.map(i =>
-        i.activity.name + (i.subtype ? ` — ${i.subtype}` : '')
-      ).join(', ')
-      const durationStr = cart.map(i => i.activity.duration).join(' + ')
-      const resolvedJet = hasJetActivity ? (jetSkiId || null) : null
+      // Reconstruit le cart avec jets + horaires
+      const updatedCart: CartItem[] = cart.map(item => {
+        const sched = schedules[item.cartId] || { start: '', end: '' }
+        const assignedJet = item.activity.requiresJetSki
+          ? (jetAssignments[item.cartId] || undefined)
+          : item.assignedJetSkiId
 
-      const updatedCart = cart.map(item => ({
-        ...item,
-        assignedJetSkiId: item.activity.requiresJetSki ? (resolvedJet ?? undefined) : item.assignedJetSkiId,
-      }))
+        const startISO = sched.start
+          ? new Date(`${baseDate}T${sched.start}:00`).toISOString()
+          : item.itemStartTime || null
+        const endISO = sched.end
+          ? new Date(`${baseDate}T${sched.end}:00`).toISOString()
+          : item.itemEndTime || null
+
+        return {
+          ...item,
+          assignedJetSkiId: assignedJet,
+          itemStatus: 'active' as const,
+          itemStartTime: startISO,
+          itemEndTime: endISO,
+        }
+      })
+
+      // Horaires globaux de la location = min(starts) → max(ends)
+      const activeTimes = updatedCart.filter(i => i.itemStartTime && i.itemEndTime)
+      const overallStart = activeTimes.length > 0
+        ? activeTimes.reduce((min, i) => i.itemStartTime! < min ? i.itemStartTime! : min, activeTimes[0].itemStartTime!)
+        : rental.start_time
+      const overallEnd = activeTimes.length > 0
+        ? activeTimes.reduce((max, i) => i.itemEndTime! > max ? i.itemEndTime! : max, activeTimes[0].itemEndTime!)
+        : rental.end_time
+
+      // Jets combinés
+      const allJetIds = jetSkiItems
+        .map(i => jetAssignments[i.cartId])
+        .filter(Boolean)
+      const resolvedJetId = allJetIds.length > 0 ? allJetIds.join(',') : null
+
+      const activityNames = cart.map(i => i.activity.name + (i.subtype ? ` — ${i.subtype}` : '')).join(', ')
 
       const { error } = await supabase
         .from('rentals')
@@ -198,12 +292,14 @@ export default function EditRentalModal({ rental, onClose, onSaved }: Props) {
           client_id_number: clientIdNumber.toUpperCase().trim(),
           activity_name:    activityNames,
           activity_id:      cart[0]?.activity.id || rental.activity_id,
-          duration:         durationStr,
+          duration:         cart.map(i => i.activity.duration).join(' + '),
           price:            totalPrice,
-          jet_ski_id:       resolvedJet,
+          jet_ski_id:       resolvedJetId,
           payment_method:   paymentMethod,
           signature,
           cart_items:       updatedCart,
+          start_time:       overallStart,
+          end_time:         overallEnd,
         })
         .eq('id', rental.id)
 
@@ -262,14 +358,12 @@ export default function EditRentalModal({ rental, onClose, onSaved }: Props) {
             </div>
           </section>
 
-          {/* ── 2. Panier d'activités ────────────────────── */}
+          {/* ── 2. Panier ───────────────────────────────── */}
           <section>
             <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
               <span className="bg-blue-100 text-blue-700 rounded-full w-5 h-5 inline-flex items-center justify-center text-xs font-bold">2</span>
               Activités
             </h3>
-
-            {/* Articles actuels */}
             {cart.length > 0 ? (
               <div className="space-y-2 mb-3">
                 {cart.map(item => (
@@ -287,9 +381,7 @@ export default function EditRentalModal({ rental, onClose, onSaved }: Props) {
                     <div className="flex items-center gap-3">
                       <span className="font-bold text-blue-900">{item.itemPrice.toLocaleString()} {CONFIG.currency}</span>
                       <button onClick={() => handleRemoveItem(item.cartId)}
-                        className="text-red-400 hover:text-red-600 hover:bg-red-50 w-7 h-7 rounded-full flex items-center justify-center transition-colors text-lg">
-                        ×
-                      </button>
+                        className="text-red-400 hover:text-red-600 w-7 h-7 rounded-full flex items-center justify-center text-lg">×</button>
                     </div>
                   </div>
                 ))}
@@ -299,122 +391,157 @@ export default function EditRentalModal({ rental, onClose, onSaved }: Props) {
                 ⚠️ Aucune activité — ajoutez-en au moins une
               </div>
             )}
-
-            {/* Prix total */}
             {cart.length > 0 && (
-              <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 mb-3 flex justify-between items-center">
+              <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 mb-3 flex justify-between">
                 <span className="text-sm font-medium text-green-700">💰 Total</span>
                 <span className="text-xl font-bold text-green-800">{totalPrice.toLocaleString()} {CONFIG.currency}</span>
               </div>
             )}
-
-            {/* Ajouter une activité */}
             <div className="border border-dashed border-gray-300 rounded-xl p-3 bg-gray-50">
               <p className="text-xs font-semibold text-gray-500 mb-2">+ Ajouter une activité</p>
               <div className="space-y-2">
-                <select
-                  value={addActivityId}
-                  onChange={e => { setAddActivityId(e.target.value); setAddSubtype('') }}
-                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-400 bg-white"
-                >
-                  <option value="">— Choisir une activité —</option>
+                <select value={addActivityId} onChange={e => { setAddActivityId(e.target.value); setAddSubtype('') }}
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+                  <option value="">— Choisir —</option>
                   {Object.entries(grouped).map(([name, variants]) => (
                     <optgroup key={name} label={`${ICONS[name] || '🌊'} ${name}`}>
                       {variants.map(act => (
-                        <option key={act.id} value={act.id}>
-                          {act.duration} · {act.price.toLocaleString()} {CONFIG.currency}
-                        </option>
+                        <option key={act.id} value={act.id}>{act.duration} · {act.price.toLocaleString()} {CONFIG.currency}</option>
                       ))}
                     </optgroup>
                   ))}
                 </select>
-
-                {/* Subtype bouée */}
                 {selectedNewActivity?.hasSubtype && (
-                  <div>
-                    <p className="text-xs font-semibold text-gray-500 mb-1">Type de bouée :</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {CONFIG.boueeSubtypes.map(s => (
-                        <button key={s} onClick={() => setAddSubtype(s)}
-                          className={`py-2 rounded-xl border-2 text-xs font-medium transition-all ${
-                            addSubtype === s
-                              ? 'border-orange-500 bg-orange-50 text-orange-800'
-                              : 'border-gray-200 hover:border-orange-300 text-gray-600'
-                          }`}>
-                          {s}
-                        </button>
-                      ))}
-                    </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {CONFIG.boueeSubtypes.map(s => (
+                      <button key={s} onClick={() => setAddSubtype(s)}
+                        className={`py-2 rounded-xl border-2 text-xs font-medium transition-all ${
+                          addSubtype === s ? 'border-orange-500 bg-orange-50 text-orange-800' : 'border-gray-200 text-gray-600'
+                        }`}>{s}</button>
+                    ))}
                   </div>
                 )}
-
                 {selectedNewActivity && (
                   <div className="flex items-center justify-between bg-white border border-blue-200 rounded-xl px-3 py-2">
                     <span className="text-sm text-blue-700 font-medium">
                       {selectedNewActivity.name} · {selectedNewActivity.duration} · <strong>{selectedNewActivity.price.toLocaleString()} {CONFIG.currency}</strong>
                     </span>
                     <button onClick={handleAddActivity}
-                      className="bg-blue-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-blue-800 transition-colors">
-                      + Ajouter
-                    </button>
+                      className="bg-blue-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-blue-800">+ Ajouter</button>
                   </div>
                 )}
               </div>
             </div>
           </section>
 
-          {/* ── 3. Jet Ski ──────────────────────────────── */}
-          {hasJetActivity && (
-            <section>
-              <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
-                <span className="bg-blue-100 text-blue-700 rounded-full w-5 h-5 inline-flex items-center justify-center text-xs font-bold">3</span>
-                Jet Ski assigné
-                {!jetSkiId && <span className="text-red-500 text-xs">* obligatoire</span>}
-              </h3>
-              <div className="grid grid-cols-4 gap-2">
-                {CONFIG.jetSkis.map(jet => {
-                  const isOccupied = !!rentalMap[jet.id]
-                  const isSelected = jetSkiId === jet.id
-                  return (
-                    <button key={jet.id}
-                      onClick={() => setJetSkiId(jet.id)}
-                      className={`p-3 rounded-xl border-2 text-center text-sm font-bold transition-all ${
-                        isSelected
-                          ? 'border-blue-600 bg-blue-100 text-blue-800 ring-2 ring-blue-300'
-                          : isOccupied
-                          ? 'border-red-200 bg-red-50 text-red-500'
-                          : 'border-green-200 bg-white text-gray-700 hover:border-green-400 hover:bg-green-50'
-                      }`}
-                    >
-                      <div className="text-xl mb-1">🚤</div>
-                      <div>{jet.name}</div>
-                      <div className={`text-xs mt-0.5 ${isSelected ? 'text-blue-600' : isOccupied ? 'text-red-400' : 'text-green-600'}`}>
-                        {isSelected ? '✅ Choisi' : isOccupied ? '❌ Sorti' : '🟢 Dispo'}
+          {/* ── 3. Jets + Horaires par activité ────────── */}
+          <section>
+            <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+              <span className="bg-blue-100 text-blue-700 rounded-full w-5 h-5 inline-flex items-center justify-center text-xs font-bold">3</span>
+              Jets skis &amp; Horaires
+            </h3>
+
+            <div className="space-y-4">
+              {cart.map((item, idx) => {
+                const sched = schedules[item.cartId] || { start: '', end: '' }
+                const isJet = item.activity.requiresJetSki
+                const jetType = item.activity.jetType as 'FX' | 'VX' | undefined
+                const jetsForType = jetType ? CONFIG.jetSkis.filter(j => j.type === jetType) : CONFIG.jetSkis
+                const assignedHere = jetAssignments[item.cartId] || ''
+
+                return (
+                  <div key={item.cartId} className="border border-gray-200 rounded-2xl p-4 bg-gray-50">
+                    <p className="text-sm font-bold text-gray-700 mb-3">
+                      {idx + 1}. {ICONS[item.activity.name] || '🌊'} {item.activity.name}
+                      {item.subtype ? ` — ${item.subtype}` : ''}
+                      <span className="text-gray-400 font-normal ml-2">· {item.activity.duration}</span>
+                    </p>
+
+                    {/* Sélecteur jet (si activité jet ski) */}
+                    {isJet && (
+                      <div className="mb-3">
+                        <p className="text-xs font-semibold text-gray-500 mb-2">
+                          🚤 Jet ski assigné
+                          {!assignedHere && <span className="text-red-500 ml-1">* obligatoire</span>}
+                        </p>
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {jetsForType.map(jet => {
+                            const isOccupied = !!rentalMap[jet.id]
+                            const isSelected = assignedHere === jet.id
+                            // Jet pris par un autre item de cette même location
+                            const takenByOther = !isSelected && allAssigned.includes(jet.id)
+                            return (
+                              <button key={jet.id}
+                                onClick={() => { if (!isOccupied && !takenByOther) assignJet(item.cartId, jet.id) }}
+                                disabled={isOccupied || takenByOther}
+                                className={`p-2.5 rounded-xl border-2 text-center text-xs font-bold transition-all ${
+                                  isSelected
+                                    ? 'border-blue-600 bg-blue-100 text-blue-800 ring-2 ring-blue-300'
+                                    : isOccupied
+                                    ? 'border-red-200 bg-red-50 text-red-400 opacity-60 cursor-not-allowed'
+                                    : takenByOther
+                                    ? 'border-orange-200 bg-orange-50 text-orange-400 opacity-60 cursor-not-allowed'
+                                    : 'border-green-200 bg-white text-gray-700 hover:border-green-400 hover:bg-green-50'
+                                }`}
+                              >
+                                <div className="text-base mb-0.5">🚤</div>
+                                <div>{jet.name}</div>
+                                <div className={`text-[10px] mt-0.5 ${
+                                  isSelected ? 'text-blue-600' :
+                                  isOccupied ? 'text-red-400' :
+                                  takenByOther ? 'text-orange-400' : 'text-green-600'
+                                }`}>
+                                  {isSelected ? '✅' : isOccupied ? '❌' : takenByOther ? '🟠' : '🟢'}
+                                </div>
+                              </button>
+                            )
+                          })}
+                        </div>
+                        {assignedHere && (
+                          <p className="text-xs text-blue-600 font-medium mt-1.5">
+                            ✅ <strong>{assignedHere}</strong>
+                            <button onClick={() => assignJet(item.cartId, assignedHere)}
+                              className="ml-2 text-gray-400 hover:text-red-400 underline">Retirer</button>
+                          </p>
+                        )}
                       </div>
-                      {isOccupied && rentalMap[jet.id] && (
-                        <div className="text-red-300 text-xs mt-0.5 leading-tight truncate">{rentalMap[jet.id]}</div>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-              {jetSkiId && (
-                <div className="mt-2 text-xs text-center text-blue-600 font-medium">
-                  Jet sélectionné : <strong>{jetSkiId}</strong>
-                  <button onClick={() => setJetSkiId('')} className="ml-2 text-gray-400 hover:text-red-400 underline">
-                    Déselectionner
-                  </button>
-                </div>
-              )}
-            </section>
-          )}
+                    )}
+
+                    {/* Horaires */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-semibold text-gray-500 mb-1 block">🕐 Heure départ</label>
+                        <input type="time" value={sched.start}
+                          onChange={e => setSchedules(prev => ({
+                            ...prev, [item.cartId]: { ...prev[item.cartId], start: e.target.value }
+                          }))}
+                          className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-400" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-gray-500 mb-1 flex items-center justify-between">
+                          <span>🏁 Heure retour</span>
+                          <button onClick={() => autoEnd(item.cartId, item)}
+                            className="text-[10px] text-blue-500 hover:text-blue-700 font-medium underline">
+                            ⚡ Auto
+                          </button>
+                        </label>
+                        <input type="time" value={sched.end}
+                          onChange={e => setSchedules(prev => ({
+                            ...prev, [item.cartId]: { ...prev[item.cartId], end: e.target.value }
+                          }))}
+                          className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-400" />
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
 
           {/* ── 4. Paiement ─────────────────────────────── */}
           <section>
             <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
-              <span className="bg-blue-100 text-blue-700 rounded-full w-5 h-5 inline-flex items-center justify-center text-xs font-bold">
-                {hasJetActivity ? '4' : '3'}
-              </span>
+              <span className="bg-blue-100 text-blue-700 rounded-full w-5 h-5 inline-flex items-center justify-center text-xs font-bold">4</span>
               Mode de paiement *
             </h3>
             <div className="grid grid-cols-3 gap-2">
@@ -431,21 +558,26 @@ export default function EditRentalModal({ rental, onClose, onSaved }: Props) {
                   </button>
                 )
               })}
+              {/* Option En attente de paiement */}
+              <button onClick={() => setPaymentMethod('En attente de paiement')}
+                className={`py-3 rounded-xl border-2 text-xs font-semibold transition-all col-span-3 ${
+                  paymentMethod === 'En attente de paiement'
+                    ? 'border-orange-400 bg-orange-50 text-orange-800'
+                    : 'border-orange-200 text-orange-600 hover:border-orange-300'
+                }`}>
+                ⏳ En attente de paiement
+              </button>
             </div>
           </section>
 
           {/* ── 5. Signature ─────────────────────────────── */}
           <section>
             <h3 className="text-sm font-bold text-gray-700 mb-1 flex items-center gap-2">
-              <span className="bg-orange-100 text-orange-700 rounded-full w-5 h-5 inline-flex items-center justify-center text-xs font-bold">
-                {hasJetActivity ? '5' : '4'}
-              </span>
+              <span className="bg-orange-100 text-orange-700 rounded-full w-5 h-5 inline-flex items-center justify-center text-xs font-bold">5</span>
               Nouvelle signature du client
               <span className="text-red-500 text-xs">* obligatoire</span>
             </h3>
-            <p className="text-xs text-gray-400 mb-2">
-              Le client doit re-signer pour valider les modifications
-            </p>
+            <p className="text-xs text-gray-400 mb-2">Le client doit re-signer pour valider les modifications</p>
             <SignaturePad onSign={setSignature} />
           </section>
 
@@ -454,20 +586,16 @@ export default function EditRentalModal({ rental, onClose, onSaved }: Props) {
         {/* Footer */}
         <div className="px-6 py-4 border-t flex gap-3">
           <button onClick={onClose}
-            className="flex-1 py-3 rounded-2xl bg-gray-100 text-gray-700 font-semibold hover:bg-gray-200 transition-colors">
+            className="flex-1 py-3 rounded-2xl bg-gray-100 text-gray-700 font-semibold hover:bg-gray-200">
             ✕ Annuler
           </button>
-          <button onClick={handleSave}
-            disabled={!canSave || saving}
-            className="flex-1 py-3 rounded-2xl bg-blue-700 text-white font-bold disabled:opacity-40 hover:bg-blue-800 transition-colors">
-            {saving ? '⏳ Enregistrement...' : '✅ Enregistrer les modifications'}
+          <button onClick={handleSave} disabled={!canSave || saving}
+            className="flex-1 py-3 rounded-2xl bg-blue-700 text-white font-bold disabled:opacity-40 hover:bg-blue-800">
+            {saving ? '⏳ Enregistrement...' : '✅ Enregistrer'}
           </button>
         </div>
-
         {!signature && (
-          <p className="text-center text-xs text-red-400 pb-3">
-            ⚠️ La signature du client est obligatoire pour enregistrer
-          </p>
+          <p className="text-center text-xs text-red-400 pb-3">⚠️ Signature obligatoire pour enregistrer</p>
         )}
       </div>
     </div>
