@@ -241,15 +241,25 @@ export default function Archives() {
       </div>
 
       {/* ── Filtres ── */}
-      <div className="flex gap-3 mb-4">
-        <input type="text" placeholder="🔍 Nom, prénom ou téléphone..."
-          value={search} onChange={e => setSearch(e.target.value)}
-          className="flex-1 border border-gray-300 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
-        <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
-          className="border border-gray-300 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+      <div className="bg-white border border-gray-200 rounded-2xl p-4 mb-4 space-y-3">
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">🔍 Recherche par nom</label>
+            <input type="text" placeholder="Nom, prénom ou téléphone..."
+              value={search} onChange={e => setSearch(e.target.value)}
+              className="w-full border border-gray-300 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">📅 Filtrer par date</label>
+            <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
+              className="border border-gray-300 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+          </div>
+        </div>
         {(search || dateFilter) && (
           <button onClick={() => { setSearch(''); setDateFilter('') }}
-            className="text-gray-400 hover:text-gray-600 px-3">✕</button>
+            className="text-xs text-red-500 hover:text-red-700 font-semibold flex items-center gap-1">
+            ✕ Effacer les filtres
+          </button>
         )}
       </div>
 
