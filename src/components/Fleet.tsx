@@ -17,18 +17,16 @@ interface ActiveRental {
 const fmt = (iso: string) =>
   new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 
-// Retourne le temps restant ou le retard
 const timeStatus = (endTime: string) => {
   const diff = Math.floor((new Date(endTime).getTime() - Date.now()) / 60000)
-  if (diff > 0) return { label: `${diff} min restante${diff > 1 ? 's' : ''}`, overdue: false }
-  const late = Math.abs(diff)
-  return { label: `En retard de ${late} min`, overdue: true }
+  if (diff > 0) return { label: `${diff} min`, overdue: false }
+  return { label: `+${Math.abs(diff)} min`, overdue: true }
 }
 
 export default function Fleet() {
   const [rentalMap, setRentalMap] = useState<Record<string, ActiveRental>>({})
   const [loading, setLoading] = useState(true)
-  const [tick, setTick] = useState(0)
+  const [, setTick] = useState(0)
 
   const fetchActive = useCallback(async () => {
     const { data } = await supabase
@@ -42,25 +40,18 @@ export default function Fleet() {
       if (r.jet_ski_id) {
         const ids = r.jet_ski_id.split(',').map((s: string) => s.trim()).filter(Boolean)
         ids.forEach((id: string) => {
-          // ✅ Chercher l'item spécifique à ce jet dans cart_items
           const item = r.cart_items?.find(
             (ci: { assignedJetSkiId?: string; itemStatus?: string }) =>
               ci.assignedJetSkiId === id && ci.itemStatus !== 'returned'
           )
-          if (item) {
-            // Utiliser les horaires propres à cet item
-            map[id] = {
-              ...r,
-              start_time:        item.itemStartTime  || r.start_time,
-              end_time:          item.itemEndTime    || r.end_time,
-              activity_name:     item.activity?.name ?? r.activity_name,
-              activity_subtype:  item.subtype        ?? r.activity_subtype,
-              duration:          item.activity?.duration ?? r.duration,
-            }
-          } else {
-            // Fallback : rental sans cart_items (anciens rentals)
-            map[id] = r
-          }
+          map[id] = item ? {
+            ...r,
+            start_time:       item.itemStartTime  || r.start_time,
+            end_time:         item.itemEndTime    || r.end_time,
+            activity_name:    item.activity?.name ?? r.activity_name,
+            activity_subtype: item.subtype        ?? r.activity_subtype,
+            duration:         item.activity?.duration ?? r.duration,
+          } : r
         })
       }
     })
@@ -70,152 +61,127 @@ export default function Fleet() {
 
   useEffect(() => {
     fetchActive()
-    // Refresh toutes les 30s depuis Supabase
     const dataInterval = setInterval(fetchActive, 30000)
-    // Re-render toutes les 60s pour mettre à jour le compte à rebours
     const tickInterval = setInterval(() => setTick(t => t + 1), 60000)
-    return () => {
-      clearInterval(dataInterval)
-      clearInterval(tickInterval)
-    }
+    return () => { clearInterval(dataInterval); clearInterval(tickInterval) }
   }, [fetchActive])
 
   const availableCount = CONFIG.jetSkis.filter(j => !rentalMap[j.id]).length
-  const occupiedCount  = CONFIG.jetSkis.filter(j => !!rentalMap[j.id]).length
+  const occupiedCount  = CONFIG.jetSkis.filter(j =>  !!rentalMap[j.id]).length
 
   if (loading) return <div className="text-center py-16 text-gray-400">⏳ Chargement...</div>
 
+  const occupiedJets  = CONFIG.jetSkis.filter(j => !!rentalMap[j.id])
+  const availableJets = CONFIG.jetSkis.filter(j => !rentalMap[j.id])
+
   return (
-    <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+    <div className="h-full flex flex-col">
+
+      {/* Header compact */}
+      <div className="flex items-center justify-between mb-3">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">🚤 Ma Flotte</h2>
-          <p className="text-gray-500 text-sm mt-1">Temps réel · actualisation automatique</p>
+          <h2 className="text-xl font-bold text-gray-800">🚤 Ma Flotte</h2>
+          <p className="text-gray-400 text-xs">Temps réel · auto 30s</p>
         </div>
-        <button
-          onClick={() => { setLoading(true); fetchActive() }}
-          className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1 border border-blue-200 px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors"
-        >
-          🔄 Actualiser
-        </button>
-      </div>
-
-      {/* Résumé */}
-      <div className="grid grid-cols-2 gap-3 mb-6">
-        <div className="bg-green-50 border border-green-200 rounded-2xl p-4 text-center">
-          <div className="text-3xl font-bold text-green-700">{availableCount}</div>
-          <div className="text-green-600 text-sm font-medium mt-1">🟢 Disponible{availableCount > 1 ? 's' : ''}</div>
-        </div>
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-center">
-          <div className="text-3xl font-bold text-red-700">{occupiedCount}</div>
-          <div className="text-red-600 text-sm font-medium mt-1">🔴 En mer</div>
+        <div className="flex items-center gap-2">
+          <span className="bg-green-100 text-green-700 text-sm font-bold px-3 py-1 rounded-full">
+            🟢 {availableCount} dispo
+          </span>
+          <span className="bg-red-100 text-red-700 text-sm font-bold px-3 py-1 rounded-full">
+            🔴 {occupiedCount} en mer
+          </span>
+          <button onClick={() => { setLoading(true); fetchActive() }}
+            className="text-blue-600 hover:text-blue-800 border border-blue-200 px-2.5 py-1 rounded-lg text-xs font-medium hover:bg-blue-50">
+            🔄
+          </button>
         </div>
       </div>
 
-      {/* Grille des jets */}
-      <div className="space-y-3">
-        {/* D'abord les jets EN MER, puis les DISPONIBLES */}
-        {[
-          ...CONFIG.jetSkis.filter(j => !!rentalMap[j.id]),
-          ...CONFIG.jetSkis.filter(j => !rentalMap[j.id]),
-        ].map(jet => {
-          const rental = rentalMap[jet.id]
-          const isOccupied = !!rental
-
-          if (isOccupied) {
-            const status = timeStatus(rental.end_time)
-            return (
-              <div
-                key={jet.id}
-                className={`rounded-2xl border-2 p-5 ${
-                  status.overdue
-                    ? 'bg-red-50 border-red-300'
-                    : 'bg-white border-orange-200'
-                }`}
-              >
-                {/* Ligne du haut : nom jet + badge */}
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl font-bold ${
-                      status.overdue ? 'bg-red-200' : 'bg-orange-100'
+      {/* Jets EN MER */}
+      {occupiedJets.length > 0 && (
+        <div className="mb-3">
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">En mer ({occupiedJets.length})</p>
+          <div className="grid grid-cols-2 gap-2">
+            {occupiedJets.map(jet => {
+              const rental = rentalMap[jet.id]!
+              const status = timeStatus(rental.end_time)
+              return (
+                <div key={jet.id} className={`rounded-xl border-2 p-3 ${
+                  status.overdue ? 'bg-red-50 border-red-300' : 'bg-white border-orange-200'
+                }`}>
+                  {/* Ligne 1 : nom jet + badge temps */}
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-base">🚤</span>
+                      <span className="font-bold text-gray-800">{jet.name}</span>
+                    </div>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                      status.overdue ? 'bg-red-200 text-red-800' : 'bg-orange-100 text-orange-700'
                     }`}>
-                      🚤
-                    </div>
-                    <div>
-                      <p className="font-bold text-gray-800 text-lg">{jet.name}</p>
-                      <p className="text-gray-500 text-xs">{jet.type}</p>
-                    </div>
+                      {status.overdue ? `⚠️ ${status.label}` : `⏳ ${status.label}`}
+                    </span>
                   </div>
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                    status.overdue
-                      ? 'bg-red-200 text-red-800'
-                      : 'bg-orange-100 text-orange-700'
-                  }`}>
-                    {status.overdue ? '🔴 En retard' : '🟡 En mer'}
-                  </span>
-                </div>
 
-                {/* Client + activité */}
-                <div className="mb-3">
-                  <p className="font-semibold text-gray-800">
+                  {/* Ligne 2 : client */}
+                  <p className="text-sm font-semibold text-gray-800 truncate">
                     {rental.client_firstname} {rental.client_name}
                   </p>
-                  <p className="text-gray-500 text-sm">
-                    {rental.activity_name}{rental.activity_subtype ? ` — ${rental.activity_subtype}` : ''} · {rental.duration}
+                  <p className="text-xs text-gray-500 truncate">
+                    {rental.activity_name}{rental.activity_subtype ? ` · ${rental.activity_subtype}` : ''} · {rental.duration}
                   </p>
-                </div>
 
-                {/* Horaires */}
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="bg-white rounded-xl p-2.5 border border-gray-100">
-                    <p className="text-gray-400 text-xs mb-0.5">DÉPART</p>
-                    <p className="font-bold text-gray-800">{fmt(rental.start_time)}</p>
-                  </div>
-                  <div className="bg-white rounded-xl p-2.5 border border-gray-100">
-                    <p className="text-gray-400 text-xs mb-0.5">RETOUR</p>
-                    <p className="font-bold text-gray-800">{fmt(rental.end_time)}</p>
-                  </div>
-                  <div className={`rounded-xl p-2.5 ${
-                    status.overdue ? 'bg-red-100' : 'bg-green-50 border border-green-100'
-                  }`}>
-                    <p className={`text-xs mb-0.5 ${status.overdue ? 'text-red-500' : 'text-green-500'}`}>
-                      {status.overdue ? 'RETARD' : 'RESTANT'}
-                    </p>
-                    <p className={`font-bold text-sm ${status.overdue ? 'text-red-700' : 'text-green-700'}`}>
-                      {status.label}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )
-          } else {
-            return (
-              <div key={jet.id} className="bg-white rounded-2xl border-2 border-green-200 p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-xl">
-                      🚤
+                  {/* Ligne 3 : horaires */}
+                  <div className="flex items-center gap-2 mt-2">
+                    <div className="flex-1 bg-gray-50 rounded-lg px-2 py-1 text-center">
+                      <p className="text-gray-400 text-[10px]">DÉPART</p>
+                      <p className="font-bold text-gray-700 text-xs">{fmt(rental.start_time)}</p>
                     </div>
-                    <div>
-                      <p className="font-bold text-gray-800">{jet.name}</p>
-                      <p className="text-gray-400 text-xs">{jet.type}</p>
+                    <div className={`flex-1 rounded-lg px-2 py-1 text-center ${
+                      status.overdue ? 'bg-red-100' : 'bg-green-50'
+                    }`}>
+                      <p className={`text-[10px] ${status.overdue ? 'text-red-400' : 'text-green-400'}`}>RETOUR</p>
+                      <p className={`font-bold text-xs ${status.overdue ? 'text-red-700' : 'text-green-700'}`}>
+                        {fmt(rental.end_time)}
+                      </p>
                     </div>
                   </div>
-                  <span className="bg-green-100 text-green-700 text-sm font-bold px-4 py-1.5 rounded-full">
-                    🟢 Disponible
-                  </span>
                 </div>
-              </div>
-            )
-          }
-        })}
-      </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
-      {/* Note actualisation */}
-      <p className="text-center text-gray-300 text-xs mt-6">
-        🔄 Actualisation automatique toutes les 30 secondes
-      </p>
+      {/* Jets DISPONIBLES */}
+      {availableJets.length > 0 && (
+        <div>
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Disponibles ({availableJets.length})</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {availableJets.map(jet => (
+              <div key={jet.id} className="bg-white rounded-xl border-2 border-green-200 px-3 py-2.5 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm">🚤</span>
+                  <span className="font-bold text-gray-800 text-sm">{jet.name}</span>
+                  <span className="text-gray-400 text-xs">{jet.type}</span>
+                </div>
+                <span className="text-green-600 text-xs font-bold">🟢</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tout dispo */}
+      {occupiedCount === 0 && (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center text-gray-400">
+            <div className="text-5xl mb-3">🌊</div>
+            <p className="font-semibold">Tous les jets sont disponibles</p>
+          </div>
+        </div>
+      )}
+
+      <p className="text-center text-gray-300 text-xs mt-3">🔄 Auto toutes les 30 secondes</p>
     </div>
   )
 }
