@@ -6,10 +6,22 @@ import { openContractPDF } from '../utils/contractHTML'
 import NewRental from './NewRental'
 
 // ── Ouvrir la photo CIN (URL signée Supabase Storage, 60s) ──
+// On ouvre la fenêtre IMMÉDIATEMENT (pendant l'événement clic) pour éviter le bloqueur de popups,
+// puis on redirige vers l'URL signée une fois qu'elle est prête.
 async function openIdPhoto(path: string) {
+  const win = window.open('', '_blank')          // ← ouvre tout de suite
   const { data, error } = await supabase.storage.from('id-photos').createSignedUrl(path, 60)
-  if (error || !data?.signedUrl) { alert('❌ Impossible d\'ouvrir la photo.'); return }
-  window.open(data.signedUrl, '_blank')
+  if (error || !data?.signedUrl) {
+    win?.close()
+    alert('❌ Impossible d\'ouvrir la photo. Vérifiez que le bucket "id-photos" existe dans Supabase Storage.')
+    return
+  }
+  if (win) {
+    win.location.href = data.signedUrl           // ← redirige vers la photo
+  } else {
+    // Fallback si le navigateur a quand même bloqué
+    window.location.href = data.signedUrl
+  }
 }
 
 // ── Types ──────────────────────────────────────────────────────
