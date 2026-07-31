@@ -15,6 +15,21 @@ interface Props {
   onNewRental: () => void
 }
 
+interface LateFee {
+  id: string
+  created_at: string
+  amount: number
+  comment: string | null
+  rental_id: string | null
+  client_name: string | null
+  payment_method: string | null
+}
+
+interface RentalOption {
+  id: string
+  label: string
+}
+
 const fmt = (iso: string) =>
   new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 
@@ -254,15 +269,27 @@ export default function ActiveRentals({ onNewRental }: Props) {
   const [payingRental, setPayingRental] = useState<Rental | null>(null)
   const [payingMethod, setPayingMethod] = useState('')
 
+  // ── Modal RETARD ──────────────────────────────────────────
+  const [lateFees, setLateFees] = useState<LateFee[]>([])
+  const [lateModal, setLateModal] = useState(false)
+  const [lateAmount, setLateAmount] = useState('')
+  const [lateComment, setLateComment] = useState('')
+  const [lateRentalId, setLateRentalId] = useState('')
+  const [latePayment, setLatePayment] = useState('')
+  const [lateSaving, setLateSaving] = useState(false)
+  const [lateRentalOptions, setLateRentalOptions] = useState<RentalOption[]>([])
+
   const fetchAll = useCallback(async () => {
-    const [activeRes, pendingRes, waitingRes] = await Promise.all([
+    const [activeRes, pendingRes, waitingRes, lateFeesRes] = await Promise.all([
       supabase.from('rentals').select('*').eq('status', 'active').order('start_time', { ascending: true }),
       supabase.from('rentals').select('*').eq('status', 'pending_jet').order('created_at', { ascending: true }),
       supabase.from('waiting_list').select('*').eq('status', 'waiting').order('created_at', { ascending: true }),
+      supabase.from('late_fees').select('*').order('created_at', { ascending: false }),
     ])
     setRentals(activeRes.data || [])
     setPendingJetRentals(pendingRes.data || [])
     setWaiting(waitingRes.data || [])
+    setLateFees(lateFeesRes.data || [])
     setLoading(false)
   }, [])
 
@@ -271,6 +298,58 @@ export default function ActiveRentals({ onNewRental }: Props) {
     const interval = setInterval(fetchAll, 30000)
     return () => clearInterval(interval)
   }, [fetchAll])
+
+  // ── Ouvrir la modal RETARD ────────────────────────────────
+  const openLateModal = async () => {
+    // Charger locations actives + archivées récentes (7 jours)
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    const [activeRes, archivedRes] = await Promise.all([
+      supabase.from('rentals').select('id, client_firstname, client_name, activity_name')
+        .in('status', ['active', 'pending_jet']).order('start_time', { ascending: false }),
+      supabase.from('rentals').select('id, client_firstname, client_name, activity_name, created_at')
+        .eq('status', 'archived').gte('created_at', since)
+        .order('created_at', { ascending: false }).limit(30),
+    ])
+    const opts: RentalOption[] = [
+      ...(activeRes.data || []).map(r => ({
+        id: r.id,
+        label: `🟡 ${r.client_firstname} ${r.client_name} — ${r.activity_name} (en cours)`,
+      })),
+      ...(archivedRes.data || []).map(r => ({
+        id: r.id,
+        label: `📁 ${r.client_firstname} ${r.client_name} — ${r.activity_name} (${fmtDate(r.created_at)})`,
+      })),
+    ]
+    setLateRentalOptions(opts)
+    setLateModal(true)
+  }
+
+  // ── Enregistrer un frais de retard ────────────────────────
+  const handleSaveLate = async () => {
+    const amount = parseFloat(lateAmount)
+    if (!amount || amount <= 0) return
+    setLateSaving(true)
+    // Récupérer le nom client si une location est liée
+    const linked = lateRentalOptions.find(o => o.id === lateRentalId)
+    const clientName = linked
+      ? linked.label.replace(/^[🟡📁]\s/, '').split(' —')[0].trim()
+      : null
+    const { error } = await supabase.from('late_fees').insert({
+      amount,
+      comment:        lateComment.trim() || null,
+      rental_id:      lateRentalId || null,
+      client_name:    clientName,
+      payment_method: latePayment || null,
+    })
+    if (error) { alert('❌ Erreur lors de l\'enregistrement.'); setLateSaving(false); return }
+    setLateAmount('')
+    setLateComment('')
+    setLateRentalId('')
+    setLatePayment('')
+    setLateModal(false)
+    setLateSaving(false)
+    fetchAll()
+  }
 
   // ── Encaisser un paiement en attente ──────────────────────
   const handlePayNow = async (method: string) => {
@@ -564,6 +643,77 @@ export default function ActiveRentals({ onNewRental }: Props) {
         </div>
       )}
 
+      {/* ── Modal RETARD ── */}
+      {lateModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold text-gray-800 mb-1">⏰ Frais de retard</h3>
+            <p className="text-gray-400 text-xs mb-5">Ce montant s'ajoutera au CA sous la catégorie "Retard"</p>
+
+            {/* Montant */}
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">💰 Montant ({CONFIG.currency}) *</label>
+              <div className="flex items-center border-2 border-gray-300 rounded-xl overflow-hidden focus-within:border-red-500">
+                <input type="number" min="0" step="1" placeholder="ex: 200"
+                  value={lateAmount} onChange={e => setLateAmount(e.target.value)}
+                  className="flex-1 px-4 py-3 text-xl font-bold text-gray-800 outline-none" />
+                <span className="px-4 text-gray-400 font-semibold bg-gray-50 border-l border-gray-200 py-3">{CONFIG.currency}</span>
+              </div>
+            </div>
+
+            {/* Commentaire */}
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">💬 Commentaire (optionnel)</label>
+              <input type="text" placeholder="ex: 30 min de dépassement"
+                value={lateComment} onChange={e => setLateComment(e.target.value)}
+                className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-red-400" />
+            </div>
+
+            {/* Lier à une location */}
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">📋 Lier à une location (optionnel)</label>
+              <select value={lateRentalId} onChange={e => setLateRentalId(e.target.value)}
+                className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-red-400">
+                <option value="">— Aucune location sélectionnée —</option>
+                {lateRentalOptions.map(o => (
+                  <option key={o.id} value={o.id}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Mode de paiement */}
+            <div className="mb-5">
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">💳 Mode de paiement (optionnel)</label>
+              <div className="grid grid-cols-3 gap-2">
+                {CONFIG.paymentMethods.map(m => {
+                  const icons: Record<string, string> = { 'Espèces': '💵', 'Carte bancaire': '💳', 'Virement': '🏦' }
+                  return (
+                    <button key={m} onClick={() => setLatePayment(latePayment === m ? '' : m)}
+                      className={`py-2 rounded-xl border-2 text-xs font-semibold flex flex-col items-center gap-0.5 transition-all ${
+                        latePayment === m ? 'border-red-500 bg-red-50 text-red-700' : 'border-gray-200 text-gray-600 hover:border-red-300'
+                      }`}>
+                      <span className="text-lg">{icons[m] || '💰'}</span>
+                      <span>{m}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={() => { setLateModal(false); setLateAmount(''); setLateComment(''); setLateRentalId(''); setLatePayment('') }}
+                className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200">
+                Annuler
+              </button>
+              <button onClick={handleSaveLate} disabled={!lateAmount || parseFloat(lateAmount) <= 0 || lateSaving}
+                className="flex-1 bg-red-500 text-white py-3 rounded-xl font-bold hover:bg-red-600 disabled:opacity-40 transition-colors">
+                {lateSaving ? '⏳...' : '⏰ Enregistrer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -574,9 +724,15 @@ export default function ActiveRentals({ onNewRental }: Props) {
             {waiting.length > 0 && <span className="ml-2 text-orange-600 font-medium">· {waiting.length} en file d'attente</span>}
           </p>
         </div>
-        <button onClick={onNewRental} className="bg-blue-700 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-blue-800 shadow">
-          ➕ Nouvelle
-        </button>
+        <div className="flex gap-2">
+          <button onClick={openLateModal}
+            className="bg-red-500 hover:bg-red-600 text-white px-4 py-2.5 rounded-xl font-semibold shadow flex items-center gap-1.5 transition-colors">
+            ⏰ Retard
+          </button>
+          <button onClick={onNewRental} className="bg-blue-700 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-blue-800 shadow">
+            ➕ Nouvelle
+          </button>
+        </div>
       </div>
 
       {!hasAnything ? (
@@ -673,7 +829,22 @@ export default function ActiveRentals({ onNewRental }: Props) {
                       </div>
                     </div>
 
-                    <p className="text-gray-400 text-xs mb-3">📋 {rental.contract_number} {rental.jet_ski_id ? `· 🚤 ${rental.jet_ski_id}` : ''}</p>
+                    <p className="text-gray-400 text-xs mb-2">📋 {rental.contract_number} {rental.jet_ski_id ? `· 🚤 ${rental.jet_ski_id}` : ''}</p>
+
+                    {/* ── Frais de retard liés à cette location ── */}
+                    {(() => {
+                      const fees = lateFees.filter(lf => lf.rental_id === rental.id)
+                      if (fees.length === 0) return null
+                      const total = fees.reduce((s, lf) => s + lf.amount, 0)
+                      return (
+                        <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-3">
+                          <p className="text-red-700 text-xs font-bold mb-1">⏰ Frais de retard : +{total.toLocaleString()} {CONFIG.currency}</p>
+                          {fees.map(lf => lf.comment && (
+                            <p key={lf.id} className="text-red-500 text-xs">• {lf.comment}</p>
+                          ))}
+                        </div>
+                      )
+                    })()}
 
                     {/* ── Activités par activité avec départs décalés ── */}
                     {hasCart ? (
