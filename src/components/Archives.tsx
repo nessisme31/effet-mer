@@ -25,6 +25,16 @@ async function openIdPhoto(path: string) {
 }
 
 // ── Types ──────────────────────────────────────────────────────
+interface LateFeeRecord {
+  id: string
+  created_at: string
+  amount: number
+  comment: string | null
+  rental_id: string | null
+  client_name: string | null
+  payment_method: string | null
+}
+
 interface ParkingRecord {
   id: string
   type: string
@@ -55,6 +65,7 @@ const toDatetimeLocal = (iso: string | null) => {
 export default function Archives() {
   const [rentals, setRentals] = useState<Rental[]>([])
   const [parkings, setParkings] = useState<ParkingRecord[]>([])
+  const [lateFees, setLateFees] = useState<LateFeeRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [dateFilter, setDateFilter] = useState('')
@@ -78,12 +89,14 @@ export default function Archives() {
 
   // ── Chargement des données ─────────────────────────────────
   const fetchAll = async () => {
-    const [rentalsRes, parkingsRes] = await Promise.all([
+    const [rentalsRes, parkingsRes, lateFeesRes] = await Promise.all([
       supabase.from('rentals').select('*').eq('status', 'archived').order('created_at', { ascending: false }),
       supabase.from('parkings').select('*').eq('status', 'archived').order('created_at', { ascending: false }),
+      supabase.from('late_fees').select('*').order('created_at', { ascending: false }),
     ])
     setRentals(rentalsRes.data || [])
     setParkings(parkingsRes.data || [])
+    setLateFees(lateFeesRes.data || [])
     setLoading(false)
   }
 
@@ -192,17 +205,34 @@ export default function Archives() {
     return nameMatch && dateMatch
   })
 
+  const filteredLateFees = lateFees.filter(lf => {
+    const nameMatch = !search || (lf.client_name || '').toLowerCase().includes(search.toLowerCase())
+      || (lf.comment || '').toLowerCase().includes(search.toLowerCase())
+    const dateMatch = !dateFilter || lf.created_at.startsWith(dateFilter)
+    return nameMatch && dateMatch
+  })
+
   const totalCA =
     filteredRentals.reduce((s, r) => s + r.price, 0) +
-    filteredParkings.reduce((s, p) => s + p.price, 0)
+    filteredParkings.reduce((s, p) => s + p.price, 0) +
+    filteredLateFees.reduce((s, lf) => s + lf.amount, 0)
 
-  const totalCount = filteredRentals.length + filteredParkings.length
+  const totalCount = filteredRentals.length + filteredParkings.length + filteredLateFees.length
 
   // ── Suppression location ───────────────────────────────────
   const handleDeleteRental = async (rental: Rental) => {
     const name = `${rental.client_firstname} ${rental.client_name}`
     if (!confirm(`⚠️ Supprimer définitivement la location de ${name} ?\n\nCette action est irréversible.`)) return
     const { error } = await supabase.from('rentals').delete().eq('id', rental.id)
+    if (error) alert('❌ Erreur lors de la suppression.')
+    else fetchAll()
+  }
+
+  // ── Suppression frais de retard ───────────────────────────
+  const handleDeleteLateFee = async (lf: LateFeeRecord) => {
+    const label = lf.client_name ? `le retard de ${lf.client_name}` : `ce retard de ${lf.amount} ${CONFIG.currency}`
+    if (!confirm(`⚠️ Supprimer définitivement ${label} ?\n\nCette action est irréversible.`)) return
+    const { error } = await supabase.from('late_fees').delete().eq('id', lf.id)
     if (error) alert('❌ Erreur lors de la suppression.')
     else fetchAll()
   }
@@ -516,6 +546,50 @@ export default function Archives() {
                     🗑️ Supprimer
                   </button>
                 </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Section Retards ── */}
+      {filteredLateFees.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">
+            ⏰ Retards ({filteredLateFees.length}) · {filteredLateFees.reduce((s, lf) => s + lf.amount, 0).toLocaleString()} {CONFIG.currency}
+          </h3>
+          <div className="space-y-3">
+            {filteredLateFees.map(lf => (
+              <div key={lf.id} className="bg-red-50 border border-red-200 rounded-xl p-4 hover:shadow-sm transition-shadow">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full">⏰ Retard</span>
+                      {lf.client_name && (
+                        <span className="text-gray-700 text-sm font-semibold">{lf.client_name}</span>
+                      )}
+                    </div>
+                    {lf.comment && (
+                      <p className="text-gray-500 text-sm mt-0.5 italic">💬 {lf.comment}</p>
+                    )}
+                  </div>
+                  <span className="font-bold text-red-700 text-lg flex-shrink-0 ml-3">
+                    +{lf.amount.toLocaleString()} {CONFIG.currency}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs text-gray-500 mb-3">
+                  <span className="bg-white px-2 py-0.5 rounded-lg border">📅 {fmtDate(lf.created_at)}</span>
+                  {lf.payment_method && (
+                    <span className="bg-white px-2 py-0.5 rounded-lg border">💳 {lf.payment_method}</span>
+                  )}
+                  {lf.rental_id && (
+                    <span className="bg-white px-2 py-0.5 rounded-lg border">🔗 Lié à une location</span>
+                  )}
+                </div>
+                <button onClick={() => handleDeleteLateFee(lf)}
+                  className="flex items-center gap-1.5 bg-white hover:bg-red-100 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-300 transition-colors">
+                  🗑️ Supprimer
+                </button>
               </div>
             ))}
           </div>
