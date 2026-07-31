@@ -79,9 +79,19 @@ const MOIS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'S
 const MOIS_FR_LONG = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
 const HOURS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
 
+interface LateFee {
+  id: string
+  created_at: string
+  amount: number
+  comment: string | null
+  rental_id: string | null
+  payment_method: string | null
+}
+
 export default function Analytics() {
   const [rentals, setRentals] = useState<Rental[]>([])
   const [parkings, setParkings] = useState<ParkingEntry[]>([])
+  const [lateFees, setLateFees] = useState<LateFee[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -97,12 +107,14 @@ export default function Analytics() {
 
   useEffect(() => {
     const fetchAll = async () => {
-      const [rentalsRes, parkingsRes] = await Promise.all([
+      const [rentalsRes, parkingsRes, lateFeesRes] = await Promise.all([
         supabase.from('rentals').select('*').order('created_at', { ascending: false }),
         supabase.from('parkings').select('*').order('created_at', { ascending: false }),
+        supabase.from('late_fees').select('*').order('created_at', { ascending: false }),
       ])
       setRentals(rentalsRes.data || [])
       setParkings(parkingsRes.data || [])
+      setLateFees(lateFeesRes.data || [])
       setLoading(false)
     }
     fetchAll()
@@ -119,13 +131,20 @@ export default function Analytics() {
   const todayParkings  = parkings.filter(p => p.created_at.startsWith(today))
   const monthParkings  = parkings.filter(p => p.created_at.startsWith(thisMonth))
 
+  // ── Frais de retard ────────────────────────────────────────
+  const todayLate  = lateFees.filter(lf => lf.created_at.startsWith(today))
+  const monthLate  = lateFees.filter(lf => lf.created_at.startsWith(thisMonth))
+
   const caToday = todayRentals.reduce((s, r) => s + r.price, 0)
               + todayParkings.reduce((s, p) => s + p.price, 0)
+              + todayLate.reduce((s, lf) => s + lf.amount, 0)
   const caMonth = monthRentals.reduce((s, r) => s + r.price, 0)
               + monthParkings.reduce((s, p) => s + p.price, 0)
+              + monthLate.reduce((s, lf) => s + lf.amount, 0)
   const caRentalsTotal  = rentals.reduce((s, r) => s + r.price, 0)
   const caParkingsTotal = parkings.reduce((s, p) => s + p.price, 0)
-  const caTotal = caRentalsTotal + caParkingsTotal
+  const caLateTotal     = lateFees.reduce((s, lf) => s + lf.amount, 0)
+  const caTotal = caRentalsTotal + caParkingsTotal + caLateTotal
 
   const todayCount  = todayRentals.length + todayParkings.length
   const monthCount  = monthRentals.length + monthParkings.length
@@ -158,11 +177,15 @@ export default function Analytics() {
     return acc
   }, {} as Record<string, { count: number; ca: number }>)
 
-  // Fusionner locations + parkings dans un seul tableau
+  // Fusionner locations + parkings + retards dans un seul tableau
   const allActivityMap = { ...activityMap }
   Object.entries(parkingMap).forEach(([key, val]) => {
     allActivityMap[`🅿️ ${key}`] = val
   })
+  // Ajouter les frais de retard comme catégorie "⏰ Retard"
+  if (caLateTotal > 0) {
+    allActivityMap['⏰ Retard'] = { count: lateFees.length, ca: caLateTotal }
+  }
 
   const sortedActivities = Object.entries(allActivityMap).sort((a, b) => b[1].ca - a[1].ca)
   const topActivity = Object.entries(activityMap).sort((a, b) => b[1].ca - a[1].ca)[0]
@@ -201,11 +224,14 @@ export default function Analytics() {
   // ── Paiements : filtré par jour sélectionné ───────────────
   const payDayRentals  = rentals.filter(r => r.created_at.startsWith(payDate))
   const payDayParkings = parkings.filter(p => p.created_at.startsWith(payDate))
+  const payDayLate     = lateFees.filter(lf => lf.created_at.startsWith(payDate) && lf.payment_method)
   const payMap: Record<string, number> = {}
   payDayRentals.forEach(r  => { payMap[r.payment_method] = (payMap[r.payment_method] || 0) + r.price })
   payDayParkings.forEach(p => { payMap[p.payment_method] = (payMap[p.payment_method] || 0) + p.price })
+  payDayLate.forEach(lf    => { payMap[lf.payment_method!] = (payMap[lf.payment_method!] || 0) + lf.amount })
   const payDayTotal = payDayRentals.reduce((s, r) => s + r.price, 0)
                     + payDayParkings.reduce((s, p) => s + p.price, 0)
+                    + payDayLate.reduce((s, lf) => s + lf.amount, 0)
 
   // ── Affluence : Vue HEURE ─────────────────────────────────
   const hourData = HOURS.map(h => {
