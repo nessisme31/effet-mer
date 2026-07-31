@@ -59,6 +59,13 @@ export default function Archives() {
   const [search, setSearch] = useState('')
   const [dateFilter, setDateFilter] = useState('')
 
+  // ── Export Excel ───────────────────────────────────────────
+  const [exportModal, setExportModal] = useState(false)
+  const _today = new Date().toISOString().slice(0, 10)
+  const [exportFrom, setExportFrom] = useState(_today)
+  const [exportTo,   setExportTo]   = useState(_today)
+  const [exporting,  setExporting]  = useState(false)
+
   // ── Modification complète d'une location (formulaire 6 étapes) ──
   const [editingRentalFull, setEditingRentalFull] = useState<Rental | null>(null)
 
@@ -81,6 +88,94 @@ export default function Archives() {
   }
 
   useEffect(() => { fetchAll() }, [])
+
+  // ── Export Excel ───────────────────────────────────────────
+  const ACTIVITY_ORDER: Record<string, number> = {
+    'Jet Ski FX': 1, 'Jet Ski VX': 2, 'Bouée Tractée': 3,
+    'Ski Nautique': 4, 'Wakeboard': 5, 'Paddle': 6,
+    'Kayak': 7, 'Scooter sous-marin': 8,
+  }
+
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      // 1. Filtrer par plage de dates
+      const toExport = rentals.filter(r => {
+        const d = r.created_at.slice(0, 10)
+        return d >= exportFrom && d <= exportTo
+      })
+
+      if (toExport.length === 0) {
+        alert('⚠️ Aucune location sur cette période.')
+        setExporting(false)
+        return
+      }
+
+      // 2. Trier : d'abord par catégorie activité, puis par date
+      const sorted = [...toExport].sort((a, b) => {
+        const oA = ACTIVITY_ORDER[a.activity_name] ?? 99
+        const oB = ACTIVITY_ORDER[b.activity_name] ?? 99
+        if (oA !== oB) return oA - oB
+        return a.created_at.localeCompare(b.created_at)
+      })
+
+      // 3. Construire les lignes du fichier Excel
+      const XLSX = await import('xlsx')
+
+      const header = [
+        'Activité', 'Sous-type', 'Nom', 'Prénom', "N° Pièce d'identité",
+        'Téléphone', 'Date', 'Heure début', 'Heure fin', 'Durée',
+        `Montant (${CONFIG.currency})`, 'Mode de paiement', 'N° Contrat',
+      ]
+
+      const rows: (string | number)[][] = [header]
+      let currentCategory = ''
+
+      sorted.forEach(r => {
+        // Ligne séparatrice + titre catégorie entre chaque groupe
+        if (r.activity_name !== currentCategory) {
+          if (currentCategory) rows.push([]) // ligne vide séparatrice
+          rows.push([`── ${r.activity_name} ──`]) // titre catégorie
+          currentCategory = r.activity_name
+        }
+        rows.push([
+          r.activity_name,
+          r.activity_subtype || '',
+          r.client_name,
+          r.client_firstname,
+          r.client_id_number || '',
+          r.client_phone || '',
+          fmtDate(r.created_at),
+          r.start_time ? fmt(r.start_time) : '',
+          r.end_time   ? fmt(r.end_time)   : '',
+          r.duration || '',
+          r.price,
+          r.payment_method,
+          r.contract_number,
+        ])
+      })
+
+      // 4. Générer et télécharger le fichier .xlsx
+      const ws = XLSX.utils.aoa_to_sheet(rows)
+
+      // Largeurs de colonnes
+      ws['!cols'] = [
+        { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 16 },
+        { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 11 },
+        { wch: 11 }, { wch: 8  }, { wch: 12 }, { wch: 18 }, { wch: 18 },
+      ]
+
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Archives')
+      XLSX.writeFile(wb, `Archives-EffetMer-${exportFrom}-au-${exportTo}.xlsx`)
+
+    } catch (err) {
+      console.error('Export error:', err)
+      alert('❌ Erreur lors de l\'export. Réessayez.')
+    }
+    setExporting(false)
+    setExportModal(false)
+  }
 
   // ── Filtrage ───────────────────────────────────────────────
   const filteredRentals = rentals.filter(r => {
@@ -230,6 +325,56 @@ export default function Archives() {
         </div>
       )}
 
+      {/* ── Export Modal ── */}
+      {exportModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold text-gray-800 mb-1">📥 Export Excel</h3>
+            <p className="text-gray-500 text-sm mb-5">Choisissez la période à exporter</p>
+
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1.5">📅 Du</label>
+                <input type="date" value={exportFrom} onChange={e => setExportFrom(e.target.value)}
+                  className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:border-blue-500 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1.5">📅 Au</label>
+                <input type="date" value={exportTo} onChange={e => setExportTo(e.target.value)}
+                  min={exportFrom}
+                  className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:border-blue-500 text-sm" />
+              </div>
+            </div>
+
+            {/* Raccourcis rapides */}
+            <div className="flex gap-2 mb-5 flex-wrap">
+              {[
+                { label: "Aujourd'hui", from: _today, to: _today },
+                { label: 'Ce mois', from: _today.slice(0, 7) + '-01', to: _today },
+                { label: 'Tout', from: '2024-01-01', to: _today },
+              ].map(s => (
+                <button key={s.label}
+                  onClick={() => { setExportFrom(s.from); setExportTo(s.to) }}
+                  className="text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold px-3 py-1.5 rounded-lg transition-colors">
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={() => setExportModal(false)}
+                className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200">
+                Annuler
+              </button>
+              <button onClick={handleExport} disabled={exporting || !exportFrom || !exportTo}
+                className="flex-1 bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700 disabled:opacity-40 transition-colors">
+                {exporting ? '⏳ Export...' : '📥 Télécharger'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── En-tête ── */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -238,6 +383,12 @@ export default function Archives() {
             {rentals.length} location(s) · {parkings.length} parking(s)
           </p>
         </div>
+        <button
+          onClick={() => setExportModal(true)}
+          className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-sm"
+        >
+          📥 Export Excel
+        </button>
       </div>
 
       {/* ── Filtres ── */}
