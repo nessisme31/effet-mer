@@ -112,14 +112,20 @@ export default function Archives() {
   const handleExport = async () => {
     setExporting(true)
     try {
-      // 1. Filtrer par plage de dates
+      // 1. Filtrer par plage de dates ET uniquement Jet Ski (VX ou FX, toutes durées)
+      const isJetSkiActivity = (name: string) => name.toLowerCase().includes('jet ski')
       const toExport = rentals.filter(r => {
         const d = r.created_at.slice(0, 10)
-        return d >= exportFrom && d <= exportTo
+        const inRange = d >= exportFrom && d <= exportTo
+        // Garder si au moins un item du panier est un jet ski (quelle que soit la durée)
+        const isJetSki = r.cart_items && Array.isArray(r.cart_items) && r.cart_items.length > 0
+          ? r.cart_items.some((item: { activity: { name: string } }) => isJetSkiActivity(item.activity.name))
+          : isJetSkiActivity(r.activity_name)
+        return inRange && isJetSki
       })
 
       if (toExport.length === 0) {
-        alert('⚠️ Aucune location sur cette période.')
+        alert('⚠️ Aucune sortie Jet Ski VX ou FX sur cette période.')
         setExporting(false)
         return
       }
