@@ -196,7 +196,7 @@ export const openContractPDF = (rental: Rental): void => {
 
   <!-- SIGNATURE -->
   <div class="sig-box">
-    <div class="lbl">✍️ Signature électronique du client</div>
+    <div class="lbl">✍️ Signature du client</div>
     ${rental.signature ? `<img src="${rental.signature}" alt="Signature de ${clientFullName}" />` : '<p style="color:#9ca3af;font-size:10px;">Signature non disponible</p>'}
     <div class="name">${clientFullName} — ${date}</div>
   </div>
