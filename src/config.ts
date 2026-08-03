@@ -301,9 +301,11 @@ export const CONFIG = {
     { id: "ski-30",       name: "Ski Nautique",       duration: "30 min", durationMinutes: 30,  price: 800,  requiresJetSki: false },
     { id: "wake-15",      name: "Wakeboard",          duration: "15 min", durationMinutes: 15,  price: 450,  requiresJetSki: false },
     { id: "wake-30",      name: "Wakeboard",          duration: "30 min", durationMinutes: 30,  price: 800,  requiresJetSki: false },
+    { id: "paddle-1h",    name: "Paddle",             duration: "1h00",   durationMinutes: 60,  price: 200,  requiresJetSki: false },
     { id: "paddle-2h",    name: "Paddle",             duration: "2h00",   durationMinutes: 120, price: 300,  requiresJetSki: false },
+    { id: "kayak-1h",     name: "Kayak",              duration: "1h00",   durationMinutes: 60,  price: 200,  requiresJetSki: false },
     { id: "kayak-2h",     name: "Kayak",              duration: "2h00",   durationMinutes: 120, price: 300,  requiresJetSki: false },
-    { id: "scooter-20",   name: "Scooter sous-marin", duration: "20 min", durationMinutes: 20,  price: 250,  requiresJetSki: false },
+    { id: "scooter-20",   name: "Scooter sous-marin", duration: "20 min", durationMinutes: 20,  price: 350,  requiresJetSki: false },
     { id: "scooter-40",   name: "Scooter sous-marin", duration: "40 min", durationMinutes: 40,  price: 600,  requiresJetSki: false },
   ] as ActivityConfig[],
 
