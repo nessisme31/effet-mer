@@ -252,6 +252,10 @@ function AssignJetPanel({ rental, onConfirm, onCancel }: AssignPanelProps) {
 }
 
 // ─── Composant principal ─────────────────────────────────────
+const JetIcon = ({ className = 'h-4 w-4' }: { className?: string }) => (
+  <img src="/jetski-icon.webp" alt="" className={`inline object-contain ${className}`} />
+)
+
 export default function ActiveRentals({ onNewRental }: Props) {
   const [rentals, setRentals] = useState<Rental[]>([])
   const [pendingJetRentals, setPendingJetRentals] = useState<Rental[]>([])
@@ -828,7 +832,10 @@ export default function ActiveRentals({ onNewRental }: Props) {
                       </div>
                     </div>
 
-                    <p className="text-gray-400 text-xs mb-2">📋 {rental.contract_number} {rental.jet_ski_id ? `· 🚤 ${rental.jet_ski_id}` : ''}</p>
+                    <p className="text-gray-400 text-xs mb-2 flex items-center gap-1 flex-wrap">
+                      📋 {rental.contract_number}
+                      {rental.jet_ski_id && <><JetIcon /> {rental.jet_ski_id}</>}
+                    </p>
 
                     {/* ── Frais de retard liés à cette location ── */}
                     {(() => {
