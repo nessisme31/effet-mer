@@ -74,8 +74,12 @@ export default function Fleet() {
   const occupiedJets  = CONFIG.jetSkis.filter(j => !!rentalMap[j.id])
   const availableJets = CONFIG.jetSkis.filter(j => !rentalMap[j.id])
 
-  const JetIcon = ({ className = 'h-5 w-5' }: { className?: string }) => (
-    <img src="/jetski-icon.webp" alt="" className={`inline object-contain ${className}`} />
+  const JetIcon = ({ type = 'FX', className = 'h-5 w-5' }: { type?: string; className?: string }) => (
+    <img
+      src={type === 'VX' ? '/jetski_icon_VX.webp' : '/jetski_icon_FX.webp'}
+      alt=""
+      className={`inline object-contain ${className}`}
+    />
   )
 
   return (
@@ -116,7 +120,7 @@ export default function Fleet() {
                   {/* Ligne 1 : nom jet + badge temps */}
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-1.5">
-                      <JetIcon className="h-5 w-5" />
+                      <JetIcon type={jet.type} className="h-5 w-5" />
                       <span className="font-bold text-gray-800">{jet.name}</span>
                     </div>
                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
@@ -164,7 +168,7 @@ export default function Fleet() {
             {availableJets.map(jet => (
               <div key={jet.id} className="bg-white rounded-xl border-2 border-green-200 px-3 py-2.5 flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
-                  <JetIcon className="h-4 w-4" />
+                  <JetIcon type={jet.type} className="h-4 w-4" />
                   <span className="font-bold text-gray-800 text-sm">{jet.name}</span>
                   <span className="text-gray-400 text-xs">{jet.type}</span>
                 </div>
