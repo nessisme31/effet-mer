@@ -23,9 +23,13 @@ interface ResumeState {
   step: number
 }
 
-const navItems: { id: Page; label: string }[] = [
-  { id: 'fleet',        label: '🛥️ Ma Flotte' },
-  { id: 'active',       label: '🚤 Locations actives' },
+const JetIcon = ({ className = 'h-4 w-4' }: { className?: string }) => (
+  <img src="/jetski-icon.webp" alt="" className={`inline object-contain ${className}`} />
+)
+
+const navItems: { id: Page; label: string; useJetIcon?: boolean }[] = [
+  { id: 'fleet',        label: 'Ma Flotte',          useJetIcon: true },
+  { id: 'active',       label: 'Locations actives',   useJetIcon: true },
   { id: 'new-rental',   label: '➕ Nouvelle' },
   { id: 'drafts',       label: '⏸️ En pause' },
   { id: 'reservations', label: '📅 Réservations' },
@@ -117,7 +121,10 @@ export default function Layout({ currentPage, setCurrentPage }: Props) {
                         : 'border-transparent text-blue-200 hover:text-white hover:border-blue-300'
                   }`}
                 >
-                  {item.label}
+                  {item.useJetIcon
+                    ? <span className="flex items-center gap-1.5"><JetIcon /> {item.label}</span>
+                    : item.label
+                  }
                   {hasDrafts && (
                     <span className="ml-1.5 bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">
                       {draftCount}
