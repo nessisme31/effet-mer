@@ -7,6 +7,7 @@ export interface ActivityConfig {
   requiresJetSki: boolean
   jetType?: 'FX' | 'VX'
   hasSubtype?: boolean
+  image?: string   // chemin dans /public (ex: /activities/jetski_FX.png)
 }
 
 export interface JetSkiConfig {
@@ -463,34 +464,42 @@ export const CONFIG = {
   ] as JetSkiConfig[],
 
   activities: [
-    { id: "jet-vx-30",    name: "Jet Ski VX",         duration: "30 min", durationMinutes: 30,  price: 800,  requiresJetSki: true,  jetType: "VX" as const },
-    { id: "jet-vx-60",    name: "Jet Ski VX",         duration: "1h00",   durationMinutes: 60,  price: 1400, requiresJetSki: true,  jetType: "VX" as const },
-   { id: "jet-vx-90",  name: "Jet Ski VX", duration: "1h30", durationMinutes: 90,  price: 2200, requiresJetSki: true, jetType: "VX" as const },
-{ id: "jet-vx-120", name: "Jet Ski VX", duration: "2h00", durationMinutes: 120, price: 2800, requiresJetSki: true, jetType: "VX" as const },
-{ id: "jet-vx-150", name: "Jet Ski VX", duration: "2h30", durationMinutes: 150, price: 3600, requiresJetSki: true, jetType: "VX" as const },
-{ id: "jet-vx-180", name: "Jet Ski VX", duration: "3h00", durationMinutes: 180, price: 4200, requiresJetSki: true, jetType: "VX" as const },
-{ id: "jet-vx-210", name: "Jet Ski VX", duration: "3h30", durationMinutes: 210, price: 5000, requiresJetSki: true, jetType: "VX" as const },
-{ id: "jet-vx-240", name: "Jet Ski VX", duration: "4h00", durationMinutes: 240, price: 5600, requiresJetSki: true, jetType: "VX" as const },
-    { id: "jet-fx-30",    name: "Jet Ski FX",         duration: "30 min", durationMinutes: 30,  price: 1200, requiresJetSki: true,  jetType: "FX" as const },
-    { id: "jet-fx-60",    name: "Jet Ski FX",         duration: "1h00",   durationMinutes: 60,  price: 2000, requiresJetSki: true,  jetType: "FX" as const },
-    { id: "jet-fx-90",  name: "Jet Ski FX", duration: "1h30", durationMinutes: 90,  price: 3200, requiresJetSki: true, jetType: "FX" as const },
-{ id: "jet-fx-120", name: "Jet Ski FX", duration: "2h00", durationMinutes: 120, price: 4000, requiresJetSki: true, jetType: "FX" as const },
-{ id: "jet-fx-150", name: "Jet Ski FX", duration: "2h30", durationMinutes: 150, price: 5200, requiresJetSki: true, jetType: "FX" as const },
-{ id: "jet-fx-180", name: "Jet Ski FX", duration: "3h00", durationMinutes: 180, price: 6000, requiresJetSki: true, jetType: "FX" as const },
-{ id: "jet-fx-210", name: "Jet Ski FX", duration: "3h30", durationMinutes: 210, price: 7200, requiresJetSki: true, jetType: "FX" as const },
-{ id: "jet-fx-240", name: "Jet Ski FX", duration: "4h00", durationMinutes: 240, price: 8000, requiresJetSki: true, jetType: "FX" as const },
-    { id: "bouee-15",     name: "Bouée Tractée",      duration: "15 min", durationMinutes: 15,  price: 300,  requiresJetSki: false, hasSubtype: true },
-    { id: "ski-15",       name: "Ski Nautique",       duration: "15 min", durationMinutes: 15,  price: 450,  requiresJetSki: false },
-    { id: "ski-30",       name: "Ski Nautique",       duration: "30 min", durationMinutes: 30,  price: 800,  requiresJetSki: false },
-    { id: "wake-15",      name: "Wakeboard",          duration: "15 min", durationMinutes: 15,  price: 450,  requiresJetSki: false },
-    { id: "wake-30",      name: "Wakeboard",          duration: "30 min", durationMinutes: 30,  price: 800,  requiresJetSki: false },
-    { id: "paddle-1h",    name: "Paddle",             duration: "1h00",   durationMinutes: 60,  price: 200,  requiresJetSki: false },
-    { id: "paddle-2h",    name: "Paddle",             duration: "2h00",   durationMinutes: 120, price: 300,  requiresJetSki: false },
-    { id: "kayak-1h",     name: "Kayak",              duration: "1h00",   durationMinutes: 60,  price: 200,  requiresJetSki: false },
-    { id: "kayak-2h",     name: "Kayak",              duration: "2h00",   durationMinutes: 120, price: 300,  requiresJetSki: false },
-    { id: "scooter-20",   name: "Scooter sous-marin", duration: "20 min", durationMinutes: 20,  price: 350,  requiresJetSki: false },
-    { id: "scooter-40",   name: "Scooter sous-marin", duration: "40 min", durationMinutes: 40,  price: 600,  requiresJetSki: false },
+    { id: "jet-vx-30",  name: "Jet Ski VX", duration: "30 min", durationMinutes: 30,  price: 800,  requiresJetSki: true, jetType: "VX" as const, image: "/activities/JetSki_VX.webp" },
+    { id: "jet-vx-60",  name: "Jet Ski VX", duration: "1h00",  durationMinutes: 60,  price: 1400, requiresJetSki: true, jetType: "VX" as const, image: "/activities/JetSki_VX.webp" },
+    { id: "jet-vx-90",  name: "Jet Ski VX", duration: "1h30",  durationMinutes: 90,  price: 2200, requiresJetSki: true, jetType: "VX" as const, image: "/activities/JetSki_VX.webp" },
+    { id: "jet-vx-120", name: "Jet Ski VX", duration: "2h00",  durationMinutes: 120, price: 2800, requiresJetSki: true, jetType: "VX" as const, image: "/activities/JetSki_VX.webp" },
+    { id: "jet-vx-150", name: "Jet Ski VX", duration: "2h30",  durationMinutes: 150, price: 3600, requiresJetSki: true, jetType: "VX" as const, image: "/activities/JetSki_VX.webp" },
+    { id: "jet-vx-180", name: "Jet Ski VX", duration: "3h00",  durationMinutes: 180, price: 4200, requiresJetSki: true, jetType: "VX" as const, image: "/activities/JetSki_VX.webp" },
+    { id: "jet-vx-210", name: "Jet Ski VX", duration: "3h30",  durationMinutes: 210, price: 5000, requiresJetSki: true, jetType: "VX" as const, image: "/activities/JetSki_VX.webp" },
+    { id: "jet-vx-240", name: "Jet Ski VX", duration: "4h00",  durationMinutes: 240, price: 5600, requiresJetSki: true, jetType: "VX" as const, image: "/activities/JetSki_VX.webp" },
+    { id: "jet-fx-30",  name: "Jet Ski FX", duration: "30 min", durationMinutes: 30,  price: 1200, requiresJetSki: true, jetType: "FX" as const, image: "/activities/jetski_FX.png" },
+    { id: "jet-fx-60",  name: "Jet Ski FX", duration: "1h00",  durationMinutes: 60,  price: 2000, requiresJetSki: true, jetType: "FX" as const, image: "/activities/jetski_FX.png" },
+    { id: "jet-fx-90",  name: "Jet Ski FX", duration: "1h30",  durationMinutes: 90,  price: 3200, requiresJetSki: true, jetType: "FX" as const, image: "/activities/jetski_FX.png" },
+    { id: "jet-fx-120", name: "Jet Ski FX", duration: "2h00",  durationMinutes: 120, price: 4000, requiresJetSki: true, jetType: "FX" as const, image: "/activities/jetski_FX.png" },
+    { id: "jet-fx-150", name: "Jet Ski FX", duration: "2h30",  durationMinutes: 150, price: 5200, requiresJetSki: true, jetType: "FX" as const, image: "/activities/jetski_FX.png" },
+    { id: "jet-fx-180", name: "Jet Ski FX", duration: "3h00",  durationMinutes: 180, price: 6000, requiresJetSki: true, jetType: "FX" as const, image: "/activities/jetski_FX.png" },
+    { id: "jet-fx-210", name: "Jet Ski FX", duration: "3h30",  durationMinutes: 210, price: 7200, requiresJetSki: true, jetType: "FX" as const, image: "/activities/jetski_FX.png" },
+    { id: "jet-fx-240", name: "Jet Ski FX", duration: "4h00",  durationMinutes: 240, price: 8000, requiresJetSki: true, jetType: "FX" as const, image: "/activities/jetski_FX.png" },
+    { id: "bouee-15",   name: "Bouée Tractée", duration: "15 min", durationMinutes: 15, price: 300, requiresJetSki: false, hasSubtype: true, image: "/activities/bouée.png" },
+    { id: "ski-15",     name: "Ski Nautique",  duration: "15 min", durationMinutes: 15, price: 450, requiresJetSki: false, image: "/activities/Ski_Nautique.png" },
+    { id: "ski-30",     name: "Ski Nautique",  duration: "30 min", durationMinutes: 30, price: 800, requiresJetSki: false, image: "/activities/Ski_Nautique.png" },
+    { id: "wake-15",    name: "Wakeboard",     duration: "15 min", durationMinutes: 15, price: 450, requiresJetSki: false, image: "/activities/Wakeboard.png" },
+    { id: "wake-30",    name: "Wakeboard",     duration: "30 min", durationMinutes: 30, price: 800, requiresJetSki: false, image: "/activities/Wakeboard.png" },
+    { id: "paddle-1h",  name: "Paddle",        duration: "1h00",   durationMinutes: 60,  price: 200, requiresJetSki: false, image: "/activities/paddle.png" },
+    { id: "paddle-2h",  name: "Paddle",        duration: "2h00",   durationMinutes: 120, price: 300, requiresJetSki: false, image: "/activities/paddle.png" },
+    { id: "kayak-1h",   name: "Kayak",         duration: "1h00",   durationMinutes: 60,  price: 200, requiresJetSki: false, image: "/activities/Kayak.png" },
+    { id: "kayak-2h",   name: "Kayak",         duration: "2h00",   durationMinutes: 120, price: 300, requiresJetSki: false, image: "/activities/Kayak.png" },
+    { id: "scooter-20", name: "Scooter sous-marin", duration: "20 min", durationMinutes: 20, price: 350, requiresJetSki: false, image: "/activities/Scootersousmarin.png" },
+    { id: "scooter-40", name: "Scooter sous-marin", duration: "40 min", durationMinutes: 40, price: 600, requiresJetSki: false, image: "/activities/Scootersousmarin.png" },
   ] as ActivityConfig[],
+
+  // Images des sous-types de bouées
+  boueeSubtypeImages: {
+    'Bouée':      '/activities/bouée.png',
+    'Banane':     '/activities/banane.png',
+    'Air Stream': '/activities/AirStream.png',
+    'Canapé':     '/activities/Canape.png',
+  } as Record<string, string>,
 
   boueeSubtypes: ["Bouée", "Banane", "Air Stream", "Canapé"],
   paymentMethods: ["Espèces", "Carte bancaire", "Virement"],
