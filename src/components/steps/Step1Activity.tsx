@@ -36,6 +36,9 @@ export default function Step1Activity({ initialCart = [], onNext }: Props) {
     return acc
   }, {} as Record<string, ActivityConfig[]>)
 
+  // Image représentative du groupe (depuis la première variante)
+  const groupImage = (name: string): string | null => grouped[name]?.[0]?.image ?? null
+
   const cartTotal = cart.reduce((sum, item) => sum + item.itemPrice, 0)
 
   // Ouvrir le panel durée pour VX/FX
@@ -100,129 +103,128 @@ export default function Step1Activity({ initialCart = [], onNext }: Props) {
       <h2 className="text-xl font-bold text-gray-800 mb-1">Étape 1 — Panier d'activités</h2>
       <p className="text-gray-500 text-sm mb-5">Cliquez sur une activité pour l'ajouter au panier</p>
 
-      {/* Activity list */}
-      <div className="space-y-3">
+      {/* ── Grille de cartes produit ── */}
+      <div className="grid grid-cols-2 gap-3 mb-4">
         {Object.entries(grouped).map(([name, variants]) => {
-          const isJetSki = variants[0].requiresJetSki // VX ou FX → panel durée
+          const isJetSki = variants[0].requiresJetSki
           const isPendingJetGroup = pendingJetVariants && pendingJetVariants[0].name === name
+          const img = groupImage(name)
+          const isBoueeOpen = !!pendingBouee && pendingBouee.name === name
 
-          // ── JET SKI VX / FX → bouton + panel durée dropdown ──
-          if (isJetSki) {
-            return (
-              <div key={name} className="border border-gray-200 rounded-2xl overflow-hidden">
-                <button
-                  onClick={() => isPendingJetGroup ? setPendingJetVariants(null) : openJetPanel(variants)}
-                  className={`w-full px-4 py-3 flex items-center justify-between transition-all ${
-                    isPendingJetGroup ? 'bg-blue-600 text-white' : 'bg-gray-50 hover:bg-blue-50 text-gray-700'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl">{ICONS[name] || '🚤'}</span>
-                    <span className="font-semibold">{name}</span>
-                  </div>
-                  <span className={`text-sm ${isPendingJetGroup ? 'text-blue-100' : 'text-blue-500'}`}>
-                    {isPendingJetGroup ? '▼ Choisir la durée' : '▶ Choisir la durée'}
-                  </span>
-                </button>
+          return (
+            <div key={name} className={`border-2 rounded-2xl overflow-hidden flex flex-col transition-all shadow-sm ${
+              isPendingJetGroup ? 'border-blue-500 shadow-blue-100' :
+              isBoueeOpen ? 'border-orange-400 shadow-orange-100' :
+              'border-gray-200 hover:border-blue-300 hover:shadow-md'
+            }`}>
 
-                {/* Panel durée (dropdown) */}
-                {isPendingJetGroup && (
-                  <div className="p-4 bg-blue-50 border-t border-blue-200">
-                    <p className="text-sm font-semibold text-blue-700 mb-2">⏱️ Durée de location :</p>
-                    <select
-                      value={pendingJetId}
-                      onChange={e => setPendingJetId(e.target.value)}
-                      className="w-full border-2 border-blue-300 rounded-xl px-4 py-3 text-base font-medium bg-white outline-none focus:ring-2 focus:ring-blue-400 mb-3"
-                    >
-                      {variants.map(act => (
-                        <option key={act.id} value={act.id}>
-                          {act.duration} · {act.price.toLocaleString()} {CONFIG.currency}
-                        </option>
-                      ))}
-                    </select>
+              {/* ── Photo produit ── */}
+              <div className="bg-gray-50 h-32 sm:h-40 flex items-center justify-center p-3">
+                {img
+                  ? <img src={img} alt={name} className="h-full w-full object-contain drop-shadow-sm" />
+                  : <span className="text-5xl">{ICONS[name] || '🌊'}</span>
+                }
+              </div>
 
-                    {/* Prix affiché */}
-                    {(() => {
-                      const sel = variants.find(a => a.id === pendingJetId)
-                      return sel ? (
-                        <div className="bg-white rounded-xl px-4 py-3 border border-blue-200 text-center mb-3">
-                          <p className="text-blue-500 text-xs font-medium mb-0.5">{name} · {sel.duration}</p>
-                          <p className="text-3xl font-bold text-blue-800">{sel.price.toLocaleString()} {CONFIG.currency}</p>
-                        </div>
-                      ) : null
-                    })()}
+              {/* ── Nom de l'activité ── */}
+              <div className="px-3 pt-2">
+                <p className="font-bold text-gray-800 text-sm leading-tight">{name}</p>
+              </div>
 
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setPendingJetVariants(null)}
-                        className="flex-1 bg-white border border-gray-300 text-gray-600 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50"
-                      >
-                        Annuler
-                      </button>
-                      <button
-                        onClick={addJetToCart}
-                        className="flex-1 bg-blue-600 text-white py-2.5 rounded-xl text-sm font-bold hover:bg-blue-700 transition-colors"
-                      >
-                        ➕ Ajouter au panier
-                      </button>
-                    </div>
+              {/* ── Boutons durée ── */}
+              <div className="px-3 pb-3 mt-auto pt-2">
+                {isJetSki ? (
+                  // Jet Ski → bouton "Choisir la durée"
+                  <button
+                    onClick={() => isPendingJetGroup ? setPendingJetVariants(null) : openJetPanel(variants)}
+                    className={`w-full py-2.5 rounded-xl text-sm font-bold transition-all ${
+                      isPendingJetGroup
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                    }`}
+                  >
+                    {isPendingJetGroup ? '▼ Durée' : '▶ Choisir la durée'}
+                  </button>
+                ) : (
+                  // Autres activités → boutons de durée inline
+                  <div className="space-y-1.5">
+                    {variants.map(activity => {
+                      const justAdded = lastAdded === activity.id
+                      return (
+                        <button
+                          key={activity.id}
+                          onClick={() => {
+                            if (activity.hasSubtype) {
+                              setPendingBouee(activity)
+                              setPendingSubtype('')
+                              setPendingPersons(1)
+                              setPendingJetVariants(null)
+                            } else {
+                              addDirectToCart(activity)
+                            }
+                          }}
+                          className={`w-full py-2 px-2.5 rounded-xl border-2 text-xs font-semibold transition-all flex justify-between items-center active:scale-95 ${
+                            justAdded
+                              ? 'border-green-500 bg-green-50 text-green-700'
+                              : pendingBouee?.id === activity.id
+                              ? 'border-orange-400 bg-orange-50 text-orange-700'
+                              : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50 text-gray-700'
+                          }`}
+                        >
+                          <span>{justAdded ? '✅ Ajouté !' : activity.duration}</span>
+                          {!justAdded && (
+                            <span className="font-bold text-blue-700">
+                              {activity.price.toLocaleString()} {CONFIG.currency}
+                              {activity.hasSubtype && <span className="text-gray-400 font-normal">/p</span>}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
                   </div>
                 )}
-              </div>
-            )
-          }
-
-          // ── AUTRES ACTIVITÉS → grille de boutons ──────────────
-          return (
-            <div key={name} className="border border-gray-200 rounded-2xl overflow-hidden">
-              <div className="bg-gray-50 px-4 py-2.5 flex items-center gap-2 border-b border-gray-200">
-                <span className="text-xl">{ICONS[name] || '🌊'}</span>
-                <span className="font-semibold text-gray-700">{name}</span>
-              </div>
-              <div className="p-3 grid grid-cols-2 gap-2">
-                {variants.map(activity => {
-                  const justAdded = lastAdded === activity.id
-                  return (
-                    <button
-                      key={activity.id}
-                      onClick={() => {
-                        if (activity.hasSubtype) {
-                          setPendingBouee(activity)
-                          setPendingSubtype('')
-                          setPendingPersons(1)
-                          setPendingJetVariants(null)
-                        } else {
-                          addDirectToCart(activity)
-                        }
-                      }}
-                      className={`p-3 rounded-xl border-2 text-left transition-all relative ${
-                        justAdded
-                          ? 'border-green-500 bg-green-50 scale-95'
-                          : pendingBouee?.id === activity.id
-                          ? 'border-orange-400 bg-orange-50'
-                          : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/30 active:scale-95'
-                      }`}
-                    >
-                      {justAdded && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-green-50 rounded-xl">
-                          <span className="text-green-600 font-bold text-sm">✅ Ajouté !</span>
-                        </div>
-                      )}
-                      <div className="font-medium text-gray-700 text-sm">{activity.duration}</div>
-                      <div className="text-blue-700 font-bold mt-0.5">
-                        {activity.price.toLocaleString()} {CONFIG.currency}
-                        {activity.hasSubtype && (
-                          <span className="text-xs font-normal text-gray-500"> /pers.</span>
-                        )}
-                      </div>
-                    </button>
-                  )
-                })}
               </div>
             </div>
           )
         })}
       </div>
+
+      {/* ── Panel Jet Ski : sélecteur de durée ── */}
+      {pendingJetVariants && (
+        <div className="mb-4 p-4 bg-blue-50 rounded-2xl border-2 border-blue-300">
+          <p className="text-sm font-bold text-blue-700 mb-2">⏱️ {pendingJetVariants[0].name} — Choisir la durée</p>
+          <select
+            value={pendingJetId}
+            onChange={e => setPendingJetId(e.target.value)}
+            className="w-full border-2 border-blue-300 rounded-xl px-4 py-3 text-base font-medium bg-white outline-none focus:ring-2 focus:ring-blue-400 mb-3"
+          >
+            {pendingJetVariants.map(act => (
+              <option key={act.id} value={act.id}>
+                {act.duration} · {act.price.toLocaleString()} {CONFIG.currency}
+              </option>
+            ))}
+          </select>
+          {(() => {
+            const sel = pendingJetVariants.find(a => a.id === pendingJetId)
+            return sel ? (
+              <div className="bg-white rounded-xl px-4 py-3 border border-blue-200 text-center mb-3">
+                <p className="text-blue-500 text-xs font-medium mb-0.5">{sel.name} · {sel.duration}</p>
+                <p className="text-3xl font-bold text-blue-800">{sel.price.toLocaleString()} {CONFIG.currency}</p>
+              </div>
+            ) : null
+          })()}
+          <div className="flex gap-2">
+            <button onClick={() => setPendingJetVariants(null)}
+              className="flex-1 bg-white border border-gray-300 text-gray-600 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50">
+              Annuler
+            </button>
+            <button onClick={addJetToCart}
+              className="flex-1 bg-blue-600 text-white py-2.5 rounded-xl text-sm font-bold hover:bg-blue-700 transition-colors">
+              ➕ Ajouter au panier
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Panel bouée (uniquement pour Bouée Tractée) */}
       {pendingBouee && (
@@ -231,22 +233,34 @@ export default function Step1Activity({ initialCart = [], onNext }: Props) {
             🔵 {pendingBouee.name} — {pendingBouee.duration}
           </p>
 
-          {/* Sous-type */}
+          {/* Sous-type avec photos */}
           <p className="text-sm font-medium text-orange-700 mb-2">Type de bouée :</p>
           <div className="grid grid-cols-2 gap-2 mb-3">
-            {CONFIG.boueeSubtypes.map(subtype => (
-              <button
-                key={subtype}
-                onClick={() => setPendingSubtype(subtype)}
-                className={`py-2.5 px-3 rounded-xl border-2 font-medium text-sm transition-all ${
-                  pendingSubtype === subtype
-                    ? 'border-orange-500 bg-orange-100 text-orange-800'
-                    : 'border-gray-200 bg-white hover:border-orange-300 text-gray-700'
-                }`}
-              >
-                {subtype}
-              </button>
-            ))}
+            {CONFIG.boueeSubtypes.map(subtype => {
+              const subtypeImg = (CONFIG.boueeSubtypeImages as Record<string, string>)?.[subtype]
+              return (
+                <button
+                  key={subtype}
+                  onClick={() => setPendingSubtype(subtype)}
+                  className={`rounded-xl border-2 overflow-hidden transition-all ${
+                    pendingSubtype === subtype
+                      ? 'border-orange-500 shadow-md'
+                      : 'border-gray-200 bg-white hover:border-orange-300'
+                  }`}
+                >
+                  {subtypeImg && (
+                    <div className="bg-gray-50 h-20 flex items-center justify-center p-2">
+                      <img src={subtypeImg} alt={subtype} className="h-full w-full object-contain" />
+                    </div>
+                  )}
+                  <div className={`py-1.5 px-2 text-xs font-bold text-center ${
+                    pendingSubtype === subtype ? 'bg-orange-100 text-orange-800' : 'bg-white text-gray-700'
+                  }`}>
+                    {subtype}
+                  </div>
+                </button>
+              )
+            })}
           </div>
 
           {/* Nombre de personnes */}
