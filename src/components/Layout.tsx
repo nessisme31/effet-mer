@@ -23,8 +23,12 @@ interface ResumeState {
   step: number
 }
 
-const JetIcon = ({ className = 'h-4 w-4' }: { className?: string }) => (
-  <img src="/jetski-icon.webp" alt="" className={`inline object-contain ${className}`} />
+const JetIcon = ({ type = 'FX', className = 'h-4 w-4' }: { type?: 'FX' | 'VX'; className?: string }) => (
+  <img
+    src={type === 'VX' ? '/jetski_icon_VX.webp' : '/jetski_icon_FX.webp'}
+    alt=""
+    className={`inline object-contain ${className}`}
+  />
 )
 
 const navItems: { id: Page; label: string; useJetIcon?: boolean }[] = [
@@ -122,7 +126,7 @@ export default function Layout({ currentPage, setCurrentPage }: Props) {
                   }`}
                 >
                   {item.useJetIcon
-                    ? <span className="flex items-center gap-1.5"><JetIcon /> {item.label}</span>
+                    ? <span className="flex items-center gap-1.5"><JetIcon type="FX" /> {item.label}</span>
                     : item.label
                   }
                   {hasDrafts && (
