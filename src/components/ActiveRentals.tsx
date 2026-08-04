@@ -252,9 +252,11 @@ function AssignJetPanel({ rental, onConfirm, onCancel }: AssignPanelProps) {
 }
 
 // ─── Composant principal ─────────────────────────────────────
-const JetIcon = ({ className = 'h-4 w-4' }: { className?: string }) => (
-  <img src="/jetski-icon.webp" alt="" className={`inline object-contain ${className}`} />
-)
+const JetIcon = ({ jetId = '', className = 'h-4 w-4' }: { jetId?: string; className?: string }) => {
+  // FX si l'ID commence par "FX", VX sinon
+  const type = jetId.toUpperCase().startsWith('FX') ? 'FX' : 'VX'
+  return <img src={type === 'FX' ? '/jetski_icon_FX.webp' : '/jetski_icon_VX.webp'} alt="" className={`inline object-contain ${className}`} />
+}
 
 export default function ActiveRentals({ onNewRental }: Props) {
   const [rentals, setRentals] = useState<Rental[]>([])
@@ -834,7 +836,7 @@ export default function ActiveRentals({ onNewRental }: Props) {
 
                     <p className="text-gray-400 text-xs mb-2 flex items-center gap-1 flex-wrap">
                       📋 {rental.contract_number}
-                      {rental.jet_ski_id && <><JetIcon /> {rental.jet_ski_id}</>}
+                      {rental.jet_ski_id && <><JetIcon jetId={rental.jet_ski_id.split(',')[0].trim()} /> {rental.jet_ski_id}</>}
                     </p>
 
                     {/* ── Frais de retard liés à cette location ── */}
