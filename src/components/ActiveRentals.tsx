@@ -737,7 +737,6 @@ export default function ActiveRentals({ onNewRental }: Props) {
 
       {!hasAnything ? (
         <div className="text-center py-20">
-          <div className="text-7xl mb-4">🌊</div>
           <p className="text-xl text-gray-500 font-medium">Aucune location en cours</p>
           <button onClick={onNewRental} className="mt-6 bg-blue-700 text-white px-8 py-3 rounded-xl font-semibold hover:bg-blue-800">➕ Démarrer une location</button>
         </div>
