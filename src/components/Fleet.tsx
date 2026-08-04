@@ -173,12 +173,7 @@ export default function Fleet() {
 
       {/* Tout dispo */}
       {occupiedCount === 0 && (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center text-gray-400">
-            <div className="text-5xl mb-3">🌊</div>
-            <p className="font-semibold">Tous les jets sont disponibles</p>
-          </div>
-        </div>
+        <p className="text-center text-gray-400 text-sm mt-3 font-medium">Tous les jets sont disponibles</p>
       )}
 
       <p className="text-center text-gray-300 text-xs mt-3">🔄 Auto toutes les 30 secondes</p>
