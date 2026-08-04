@@ -132,7 +132,7 @@ export default function Step1Activity({ initialCart = [], onNext }: Props) {
               </div>
 
               {/* ── Boutons durée ── */}
-              <div className="px-3 pb-3 mt-auto pt-2">
+              <div className="px-3 pb-3 pt-2">
                 {isJetSki ? (
                   // Jet Ski → bouton "Choisir la durée"
                   <button
