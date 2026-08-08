@@ -233,6 +233,23 @@ export default function Analytics() {
                     + payDayParkings.reduce((s, p) => s + p.price, 0)
                     + payDayLate.reduce((s, lf) => s + lf.amount, 0)
 
+  // ── Heures les plus rentables (toutes données historiques) ──
+  const hourlyProfit = Array.from({ length: 24 }, (_, h) => {
+    const hourRentals = rentals.filter(r => r.start_time && new Date(r.start_time).getHours() === h)
+    if (hourRentals.length === 0) return null
+    const totalCA      = hourRentals.reduce((s, r) => s + r.price, 0)
+    const distinctDays = new Set(hourRentals.map(r => r.start_time.slice(0, 10))).size
+    const avgCA        = Math.round(totalCA / distinctDays)
+    return { h, label: `${h}h00`, totalCA, avgCA, count: hourRentals.length, distinctDays }
+  })
+    .filter(Boolean)
+    .sort((a, b) => b!.avgCA - a!.avgCA) as {
+      h: number; label: string; totalCA: number
+      avgCA: number; count: number; distinctDays: number
+    }[]
+
+  const maxAvgCA = hourlyProfit[0]?.avgCA ?? 1
+
   // ── Affluence : Vue HEURE ─────────────────────────────────
   const hourData = HOURS.map(h => {
     const rentalCount = rentals.filter(r => {
@@ -606,6 +623,56 @@ export default function Analytics() {
           </div>
         )}
       </div>
+
+      {/* ── Heures les plus rentables ── */}
+      <div className="bg-white rounded-2xl border p-5 shadow-sm mt-6">
+        <h3 className="font-bold text-gray-800 mb-1">⏰ Heures les plus rentables</h3>
+        <p className="text-xs text-gray-400 mb-4">CA moyen par heure de départ · toutes les données historiques</p>
+
+        {hourlyProfit.length === 0 ? (
+          <div className="text-center py-6 text-gray-400 text-sm">Pas encore assez de données</div>
+        ) : (
+          <div className="space-y-3">
+            {hourlyProfit.slice(0, 8).map((d, idx) => {
+              const pct = Math.round((d.avgCA / maxAvgCA) * 100)
+              const medals = ['🥇', '🥈', '🥉']
+              const medal = medals[idx] ?? `#${idx + 1}`
+              const barColor =
+                idx === 0 ? 'bg-yellow-400' :
+                idx === 1 ? 'bg-gray-400' :
+                idx === 2 ? 'bg-amber-600' :
+                'bg-blue-400'
+              return (
+                <div key={d.h} className="flex items-center gap-3">
+                  <span className="text-lg w-8 text-center flex-shrink-0">{medal}</span>
+                  <div className="w-12 text-center flex-shrink-0">
+                    <span className="font-bold text-gray-700 text-sm">{d.label}</span>
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-gray-500">{d.count} sortie{d.count > 1 ? 's' : ''} · {d.distinctDays} jour{d.distinctDays > 1 ? 's' : ''}</span>
+                      <div className="text-right">
+                        <span className="font-bold text-gray-800">{d.avgCA.toLocaleString()} {CONFIG.currency}</span>
+                        <span className="text-gray-400 text-xs ml-1">/jour</span>
+                      </div>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div className={`h-2 ${barColor} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {hourlyProfit.length > 8 && (
+          <p className="text-xs text-gray-400 text-center mt-3">
+            Top 8 affiché · {hourlyProfit.length} tranches horaires analysées
+          </p>
+        )}
+      </div>
+
     </div>
   )
 }
