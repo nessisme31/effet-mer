@@ -238,7 +238,7 @@ export default function Analytics() {
     const hourRentals = rentals.filter(r => r.start_time && new Date(r.start_time).getHours() === h)
     if (hourRentals.length === 0) return null
     const totalCA      = hourRentals.reduce((s, r) => s + r.price, 0)
-    const distinctDays = new Set(hourRentals.map(r => r.start_time.slice(0, 10))).size
+    const distinctDays = new Set(hourRentals.map(r => r.start_time!.slice(0, 10))).size
     const avgCA        = Math.round(totalCA / distinctDays)
     return { h, label: `${h}h00`, totalCA, avgCA, count: hourRentals.length, distinctDays }
   })
