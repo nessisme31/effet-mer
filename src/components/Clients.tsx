@@ -219,7 +219,7 @@ export default function Clients() {
 
     const { data, error: downloadError } = await supabase
       .storage
-      .from('client-documents')
+      .from('id-photos')
       .download(path)
 
     if (downloadError || !data) {
