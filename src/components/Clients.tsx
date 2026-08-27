@@ -304,7 +304,7 @@ export default function Clients() {
                     <div className="bg-white rounded-lg p-3">
                       <p className="text-xs text-gray-400">Origine</p>
                       <p className="font-semibold text-gray-800 mt-1">
-                        {client.origin === 'hotel' ? '🏨 Hôtel' : client.origin === 'exterieur' ? '🌊 Extérieur' : 'Non renseignée'}
+                        {client.origin === 'hotel' ? '🏨 Hôtel' : '🌊 Extérieur'}
                       </p>
                     </div>
                   </div>
