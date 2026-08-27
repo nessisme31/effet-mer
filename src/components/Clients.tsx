@@ -39,11 +39,13 @@ const formatDate = (iso: string) =>
     year: 'numeric',
   })
 
-const formatTime = (iso: string) =>
-  new Date(iso).toLocaleTimeString('fr-FR', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+const formatTime = (iso: string | null) =>
+  iso
+    ? new Date(iso).toLocaleTimeString('fr-FR', {
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '—'
 
 export default function Clients() {
   const [clients, setClients] = useState<ClientSummary[]>([])
