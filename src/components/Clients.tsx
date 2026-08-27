@@ -1,28 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { CONFIG } from '../config'
+import { Rental } from '../types'
+import { openContractPDF } from '../utils/contractHTML'
 
-// ── Ouvrir/télécharger une photo CIN depuis Supabase Storage ──
-// On ouvre la fenêtre IMMÉDIATEMENT pour éviter le bloqueur de popups du navigateur.
-async function openIdPhoto(path: string) {
-  const win = window.open('', '_blank')
-  const { data, error } = await supabase.storage.from('id-photos').createSignedUrl(path, 60)
-  if (error || !data?.signedUrl) {
-    win?.close()
-    alert('❌ Impossible d\'ouvrir la photo.')
-    return
-  }
-  if (win) {
-    win.location.href = data.signedUrl
-  } else {
-    window.location.href = data.signedUrl
-  }
-}
+type ClientOrigin = 'hotel' | 'exterieur' | null
 
-interface PhotoEntry {
-  contract_number: string
-  created_at: string
-  id_photo_url: string
+type RentalWithClientData = Rental & {
+  client_origin?: ClientOrigin
+  client_id_document_path?: string | null
 }
 
 interface ClientSummary {
@@ -31,374 +17,363 @@ interface ClientSummary {
   firstname: string
   phone: string
   idNumber: string
-  totalCA: number
-  visits: number
-  parkingVisits: number
-  lastVisit: string
-  activities: string[]
-  hasPhone: boolean
+  origin: ClientOrigin
+  idDocumentPath: string | null
+  rentals: RentalWithClientData[]
 }
+
+interface EditData {
+  name: string
+  firstname: string
+  phone: string
+  idNumber: string
+  origin: Exclude<ClientOrigin, null>
+}
+
+const normalizePhone = (phone: string) => phone.replace(/\s/g, '')
+
+const formatDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  })
+
+const formatTime = (iso: string) =>
+  new Date(iso).toLocaleTimeString('fr-FR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 
 export default function Clients() {
   const [clients, setClients] = useState<ClientSummary[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [search, setSearch] = useState('')
-  const [dateFilter, setDateFilter] = useState('')
-
-  // ── Édition ───────────────────────────────────────────────
+  const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [editingClient, setEditingClient] = useState<ClientSummary | null>(null)
-  const [editForm, setEditForm] = useState({ firstname: '', name: '', phone: '' })
+  const [editData, setEditData] = useState<EditData | null>(null)
   const [saving, setSaving] = useState(false)
-
-  // ── Photos CIN du client ───────────────────────────────────
-  const [photosClient, setPhotosClient] = useState<ClientSummary | null>(null)
-  const [photoEntries, setPhotoEntries] = useState<PhotoEntry[]>([])
-  const [loadingPhotos, setLoadingPhotos] = useState(false)
-
-  const openClientPhotos = async (client: ClientSummary) => {
-    setPhotosClient(client)
-    setLoadingPhotos(true)
-    const { data } = await supabase
-      .from('rentals')
-      .select('contract_number, created_at, id_photo_url')
-      .eq('client_phone', client.phone)
-      .not('id_photo_url', 'is', null)
-      .order('created_at', { ascending: false })
-    setPhotoEntries((data || []) as PhotoEntry[])
-    setLoadingPhotos(false)
-  }
+  const [deletingKey, setDeletingKey] = useState<string | null>(null)
 
   const fetchClients = async () => {
-    // Récupère locations ET parkings en parallèle
-    const [rentalsRes, parkingsRes] = await Promise.all([
-      supabase
-        .from('rentals')
-        .select('client_name, client_firstname, client_phone, client_id_number, price, created_at, activity_name')
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('parkings')
-        .select('client_name, price, created_at, type')
-        .order('created_at', { ascending: false }),
-    ])
+    setLoading(true)
+    setError('')
+
+    const { data, error: fetchError } = await supabase
+      .from('rentals')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (fetchError) {
+      setError('Impossible de charger les clients.')
+      setClients([])
+      setLoading(false)
+      return
+    }
 
     const map = new Map<string, ClientSummary>()
 
-    // ── Locations (clé = téléphone) ───────────────────────────
-    ;(rentalsRes.data || []).forEach(r => {
-      const key = 'phone:' + r.client_phone.replace(/\s/g, '')
-      if (map.has(key)) {
-        const c = map.get(key)!
-        c.totalCA += r.price
-        c.visits += 1
-        if (r.created_at > c.lastVisit) c.lastVisit = r.created_at
-        if (!c.activities.includes(r.activity_name)) c.activities.push(r.activity_name)
+    ;((data || []) as RentalWithClientData[]).forEach(rental => {
+      const key = normalizePhone(rental.client_phone)
+      const existing = map.get(key)
+
+      if (existing) {
+        existing.rentals.push(rental)
+        if (!existing.idDocumentPath && rental.client_id_document_path) {
+          existing.idDocumentPath = rental.client_id_document_path
+        }
+        if (!existing.origin && rental.client_origin) {
+          existing.origin = rental.client_origin
+        }
       } else {
         map.set(key, {
           key,
-          name: r.client_name,
-          firstname: r.client_firstname,
-          phone: r.client_phone,
-          idNumber: r.client_id_number,
-          totalCA: r.price,
-          visits: 1,
-          parkingVisits: 0,
-          lastVisit: r.created_at,
-          activities: [r.activity_name],
-          hasPhone: true,
+          name: rental.client_name,
+          firstname: rental.client_firstname,
+          phone: rental.client_phone,
+          idNumber: rental.client_id_number,
+          origin: rental.client_origin || null,
+          idDocumentPath: rental.client_id_document_path || null,
+          rentals: [rental],
         })
       }
     })
 
-    // ── Parkings (clé = nom normalisé si pas de téléphone) ────
-    ;(parkingsRes.data || []).forEach(p => {
-      const normalizedName = p.client_name.trim().toUpperCase()
-
-      // Essaie de matcher avec un client existant par nom
-      let matchedKey: string | null = null
-      for (const [key, client] of map.entries()) {
-        if (client.name.toUpperCase() === normalizedName) {
-          matchedKey = key
-          break
-        }
-      }
-
-      if (matchedKey) {
-        // Client déjà connu via une location → ajoute le CA parking
-        const c = map.get(matchedKey)!
-        c.totalCA += p.price
-        c.parkingVisits += 1
-        if (p.created_at > c.lastVisit) c.lastVisit = p.created_at
-        if (!c.activities.includes('🅿️ Parking')) c.activities.push('🅿️ Parking')
-      } else {
-        // Nouveau client parking sans location existante
-        const key = 'parking:' + normalizedName
-        if (map.has(key)) {
-          const c = map.get(key)!
-          c.totalCA += p.price
-          c.parkingVisits += 1
-          if (p.created_at > c.lastVisit) c.lastVisit = p.created_at
-        } else {
-          map.set(key, {
-            key,
-            name: normalizedName,
-            firstname: '',
-            phone: '',
-            idNumber: '',
-            totalCA: p.price,
-            visits: 0,
-            parkingVisits: 1,
-            lastVisit: p.created_at,
-            activities: ['🅿️ Parking'],
-            hasPhone: false,
-          })
-        }
-      }
-    })
-
-    setClients(Array.from(map.values()).sort((a, b) => b.totalCA - a.totalCA))
+    setClients(
+      Array.from(map.values()).sort((a, b) => {
+        const byName = a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })
+        if (byName !== 0) return byName
+        return a.firstname.localeCompare(b.firstname, 'fr', { sensitivity: 'base' })
+      }),
+    )
     setLoading(false)
   }
 
-  useEffect(() => { fetchClients() }, [])
+  useEffect(() => {
+    fetchClients()
+  }, [])
 
-  const filtered = clients.filter(c => {
-    const nameMatch = !search ||
-      `${c.firstname} ${c.name}`.toLowerCase().includes(search.toLowerCase()) ||
-      c.phone.includes(search)
-    const dateMatch = !dateFilter || c.lastVisit.startsWith(dateFilter)
-    return nameMatch && dateMatch
-  })
+  const filteredClients = useMemo(() => {
+    const value = search.trim().toLowerCase()
+    if (!value) return clients
 
-  const totalCA = filtered.reduce((sum, c) => sum + c.totalCA, 0)
+    return clients.filter(client =>
+      `${client.firstname} ${client.name}`.toLowerCase().includes(value) ||
+      client.phone.toLowerCase().includes(value) ||
+      client.idNumber.toLowerCase().includes(value),
+    )
+  }, [clients, search])
 
-  // ── Édition ────────────────────────────────────────────────
   const openEdit = (client: ClientSummary) => {
     setEditingClient(client)
-    setEditForm({ firstname: client.firstname, name: client.name, phone: client.phone })
+    setEditData({
+      name: client.name,
+      firstname: client.firstname,
+      phone: client.phone,
+      idNumber: client.idNumber,
+      origin: client.origin || 'exterieur',
+    })
   }
 
-  const handleSave = async () => {
-    if (!editingClient) return
-    setSaving(true)
+  const updateEditField = (field: keyof EditData, value: string) => {
+    setEditData(previous => previous ? { ...previous, [field]: value } : previous)
+  }
 
-    if (editingClient.hasPhone) {
-      // Client avec téléphone : met à jour toutes ses locations
-      const { error } = await supabase.from('rentals').update({
-        client_firstname: editForm.firstname,
-        client_name: editForm.name.toUpperCase(),
-        client_phone: editForm.phone,
-      }).eq('client_phone', editingClient.phone)
-      if (error) { alert('❌ Erreur lors de la sauvegarde.'); setSaving(false); return }
-    } else {
-      // Client parking : met à jour le nom dans tous ses parkings
-      const { error } = await supabase.from('parkings').update({
-        client_name: editForm.name.toUpperCase(),
-      }).eq('client_name', editingClient.name)
-      if (error) { alert('❌ Erreur lors de la sauvegarde.'); setSaving(false); return }
+  const handleSaveEdit = async () => {
+    if (!editingClient || !editData) return
+
+    if (!editData.name.trim() || !editData.firstname.trim() || !editData.phone.trim() || !editData.idNumber.trim()) {
+      alert('Veuillez remplir tous les champs obligatoires.')
+      return
     }
 
-    setEditingClient(null)
-    fetchClients()
+    setSaving(true)
+    const rentalIds = editingClient.rentals.map(rental => rental.id)
+    const { error: updateError } = await supabase
+      .from('rentals')
+      .update({
+        client_name: editData.name.trim().toUpperCase(),
+        client_firstname: editData.firstname.trim(),
+        client_phone: editData.phone.trim(),
+        client_id_number: editData.idNumber.trim().toUpperCase(),
+        client_origin: editData.origin,
+      })
+      .in('id', rentalIds)
+
+    if (updateError) {
+      alert('La modification n’a pas pu être enregistrée.')
+    } else {
+      setEditingClient(null)
+      setEditData(null)
+      await fetchClients()
+    }
     setSaving(false)
   }
 
-  // ── Suppression ────────────────────────────────────────────
   const handleDelete = async (client: ClientSummary) => {
-    const name = `${client.firstname} ${client.name}`.trim()
-    const totalVisits = client.visits + client.parkingVisits
-    if (!confirm(`⚠️ Supprimer définitivement le client ${name} ?\n\nCela supprimera ${totalVisits} entrée(s).\n\nCette action est irréversible.`)) return
+    const fullName = `${client.firstname} ${client.name}`
+    const reservationCount = client.rentals.length
 
-    if (client.hasPhone) {
-      await supabase.from('rentals').delete().eq('client_phone', client.phone)
+    const firstConfirmation = window.confirm(
+      `Attention : vous allez supprimer définitivement ${fullName} et ses ${reservationCount} réservation(s).\n\nCette action supprimera également son historique des statistiques. Continuer ?`,
+    )
+
+    if (!firstConfirmation) return
+
+    const typedConfirmation = window.prompt(
+      `Deuxième vérification. Pour confirmer la suppression définitive de ${fullName}, tapez exactement : SUPPRIMER`,
+    )
+
+    if (typedConfirmation?.trim().toUpperCase() !== 'SUPPRIMER') {
+      alert('Suppression annulée : le mot de confirmation n’est pas correct.')
+      return
     }
-    if (client.parkingVisits > 0) {
-      await supabase.from('parkings').delete().eq('client_name', client.name)
+
+    setDeletingKey(client.key)
+    const rentalIds = client.rentals.map(rental => rental.id)
+
+    const [rentalsResult, waitingResult] = await Promise.all([
+      supabase.from('rentals').delete().in('id', rentalIds),
+      supabase.from('waiting_list').delete().eq('client_phone', client.phone),
+    ])
+
+    if (rentalsResult.error || waitingResult.error) {
+      alert('Une erreur est survenue pendant la suppression. Vérifiez que le client n’apparaît plus, puis réessayez si nécessaire.')
+    } else {
+      setExpandedKey(null)
+      await fetchClients()
     }
-    fetchClients()
+
+    setDeletingKey(null)
+  }
+
+  const downloadIdentity = async (path: string) => {
+    if (/^https?:\/\//i.test(path)) {
+      window.open(path, '_blank', 'noopener,noreferrer')
+      return
+    }
+
+    const { data, error: downloadError } = await supabase
+      .storage
+      .from('client-documents')
+      .download(path)
+
+    if (downloadError || !data) {
+      alert('La carte d’identité n’a pas pu être téléchargée.')
+      return
+    }
+
+    const url = URL.createObjectURL(data)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = path.split('/').pop() || 'carte-identite'
+    link.click()
+    URL.revokeObjectURL(url)
   }
 
   if (loading) return <div className="text-center py-16 text-gray-400">⏳ Chargement...</div>
 
   return (
     <div>
-      {/* ── Modal photos CIN ── */}
-      {photosClient && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
-            <h3 className="text-lg font-bold text-gray-800 mb-1">📷 Photos CIN</h3>
-            <p className="text-gray-500 text-sm mb-4">
-              {photosClient.firstname} {photosClient.name}
-            </p>
-            {loadingPhotos ? (
-              <p className="text-center text-gray-400 py-4">⏳ Chargement...</p>
-            ) : photoEntries.length === 0 ? (
-              <p className="text-center text-gray-400 py-4">Aucune photo enregistrée</p>
-            ) : (
-              <div className="space-y-2 mb-4">
-                {photoEntries.map((entry, i) => (
-                  <button
-                    key={i}
-                    onClick={() => openIdPhoto(entry.id_photo_url)}
-                    className="w-full flex items-center justify-between bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl px-4 py-3 transition-colors"
-                  >
-                    <div className="text-left">
-                      <p className="text-purple-800 font-semibold text-sm">📋 {entry.contract_number}</p>
-                      <p className="text-purple-500 text-xs">
-                        {new Date(entry.created_at).toLocaleDateString('fr-FR')}
-                      </p>
-                    </div>
-                    <span className="text-purple-600 text-sm font-bold">⬇️ Voir</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            <button
-              onClick={() => { setPhotosClient(null); setPhotoEntries([]) }}
-              className="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200"
-            >
-              Fermer
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Modal édition ── */}
-      {editingClient && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
-            <h3 className="text-lg font-bold text-gray-800 mb-5">✏️ Modifier le client</h3>
-            <p className="text-gray-400 text-xs mb-4">
-              Les modifications s'appliqueront sur toutes les entrées de ce client.
-            </p>
-            <div className="space-y-4">
-              {editingClient.hasPhone && (
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Prénom</label>
-                  <input type="text" value={editForm.firstname}
-                    onChange={e => setEditForm(p => ({ ...p, firstname: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-                </div>
-              )}
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Nom</label>
-                <input type="text" value={editForm.name}
-                  onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
-              {editingClient.hasPhone && (
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Téléphone</label>
-                  <input type="text" value={editForm.phone}
-                    onChange={e => setEditForm(p => ({ ...p, phone: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-                </div>
-              )}
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button onClick={() => setEditingClient(null)}
-                className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200">Annuler</button>
-              <button onClick={handleSave} disabled={saving}
-                className="flex-1 bg-blue-700 text-white py-3 rounded-xl font-bold hover:bg-blue-800 disabled:opacity-50">
-                {saving ? '⏳...' : '✅ Enregistrer'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── En-tête ── */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">Fichier clients</h2>
-          <p className="text-gray-500 text-sm mt-1">{clients.length} client(s) unique(s)</p>
+          <h2 className="text-2xl font-bold text-gray-800">Clients</h2>
+          <p className="text-gray-500 text-sm mt-1">{clients.length} client(s)</p>
         </div>
       </div>
 
-      {/* ── Filtres ── */}
-      <div className="bg-white border border-gray-200 rounded-2xl p-4 mb-4 space-y-3">
-        <div className="flex gap-3">
-          <div className="flex-1">
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">🔍 Recherche par nom</label>
-            <input type="text" placeholder="Nom, prénom ou téléphone..."
-              value={search} onChange={e => setSearch(e.target.value)}
-              className="w-full border border-gray-300 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">📅 Dernière visite</label>
-            <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
-              className="border border-gray-300 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
-          </div>
-        </div>
-        {(search || dateFilter) && (
-          <button onClick={() => { setSearch(''); setDateFilter('') }}
-            className="text-xs text-red-500 hover:text-red-700 font-semibold flex items-center gap-1">
-            ✕ Effacer les filtres
-          </button>
-        )}
-      </div>
+      <input
+        type="text"
+        placeholder="🔍 Rechercher un nom, téléphone ou pièce d’identité..."
+        value={search}
+        onChange={event => setSearch(event.target.value)}
+        className="w-full border border-gray-300 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 mb-4 text-sm"
+      />
 
-      <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 mb-4 flex justify-between">
-        <span className="text-blue-700 text-sm font-medium">{filtered.length} client(s)</span>
-        <span className="text-blue-800 font-bold">CA total : {totalCA.toLocaleString()} {CONFIG.currency}</span>
-      </div>
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4">{error}</div>}
 
       <div className="space-y-3">
-        {filtered.map((client, i) => (
-          <div key={client.key} className="bg-white rounded-xl border p-4 hover:shadow-sm transition-shadow">
-            <div className="flex justify-between items-start">
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400 font-mono">#{i + 1}</span>
-                  <p className="font-semibold text-gray-800">
-                    {client.firstname ? `${client.firstname} ${client.name}` : client.name}
+        {filteredClients.map(client => {
+          const isExpanded = expandedKey === client.key
+          const isDeleting = deletingKey === client.key
+
+          return (
+            <div key={client.key} className="bg-white rounded-xl border overflow-hidden">
+              <div className="p-4 flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setExpandedKey(isExpanded ? null : client.key)}
+                  className="flex-1 text-left min-w-0"
+                >
+                  <p className="font-semibold text-gray-800 truncate">
+                    {client.name} {client.firstname}
                   </p>
-                  {!client.hasPhone && (
-                    <span className="bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded-full">🅿️ Parking</span>
-                  )}
-                </div>
-                {client.phone && <p className="text-gray-500 text-sm mt-0.5">{client.phone}</p>}
-                <p className="text-gray-400 text-xs mt-1">
-                  {client.visits > 0 && `${client.visits} location(s)`}
-                  {client.visits > 0 && client.parkingVisits > 0 && ' · '}
-                  {client.parkingVisits > 0 && `${client.parkingVisits} parking(s)`}
-                  {' · '}Dernière : {new Date(client.lastVisit).toLocaleDateString('fr-FR')}
-                </p>
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {client.activities.map(act => (
-                    <span key={act} className="bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded-full">{act}</span>
-                  ))}
-                </div>
-              </div>
-              <div className="text-right ml-4">
-                <p className="font-bold text-gray-800 text-xl">{client.totalCA.toLocaleString()}</p>
-                <p className="text-gray-500 text-xs">{CONFIG.currency} CA</p>
-              </div>
-            </div>
-            <div className="mt-3 flex gap-2 flex-wrap">
-              {client.hasPhone && (
-                <button onClick={() => openClientPhotos(client)}
-                  className="flex items-center gap-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-purple-200">
-                  📷 Photos CIN
+                  <p className="text-gray-500 text-sm mt-0.5">{client.phone}</p>
                 </button>
+
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => openEdit(client)}
+                    className="px-3 py-2 rounded-lg bg-blue-50 text-blue-700 text-sm font-semibold hover:bg-blue-100"
+                  >
+                    Modifier
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(client)}
+                    disabled={isDeleting}
+                    className="px-3 py-2 rounded-lg bg-red-50 text-red-700 text-sm font-semibold hover:bg-red-100 disabled:opacity-50"
+                  >
+                    {isDeleting ? 'Suppression…' : 'Supprimer'}
+                  </button>
+                </div>
+              </div>
+
+              {isExpanded && (
+                <div className="border-t bg-gray-50 p-4 space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="bg-white rounded-lg p-3">
+                      <p className="text-xs text-gray-400">N° carte d’identité</p>
+                      <p className="font-semibold text-gray-800 mt-1">{client.idNumber || 'Non renseigné'}</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <p className="text-xs text-gray-400">Origine</p>
+                      <p className="font-semibold text-gray-800 mt-1">
+                        {client.origin === 'hotel' ? '🏨 Hôtel' : client.origin === 'exterieur' ? '🌊 Extérieur' : 'Non renseignée'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {client.idDocumentPath && (
+                    <button
+                      type="button"
+                      onClick={() => downloadIdentity(client.idDocumentPath!)}
+                      className="w-full bg-white border border-blue-200 text-blue-700 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-blue-50"
+                    >
+                      🪪 Télécharger la carte d’identité
+                    </button>
+                  )}
+
+                  <div>
+                    <h3 className="font-bold text-gray-700 mb-2">Réservations</h3>
+                    <div className="space-y-2">
+                      {client.rentals.map(rental => (
+                        <div key={rental.id} className="bg-white border rounded-lg p-3 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-gray-800">{formatDate(rental.created_at)}</p>
+                            <p className="text-gray-500 text-xs mt-0.5">
+                              {rental.activity_name} · {formatTime(rental.start_time)} · {rental.price.toLocaleString()} {CONFIG.currency}
+                            </p>
+                            <p className="text-gray-400 text-xs mt-0.5">Contrat {rental.contract_number}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openContractPDF(rental)}
+                            className="shrink-0 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg px-3 py-2 text-xs font-semibold hover:bg-blue-100"
+                          >
+                            📄 Contrat
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               )}
-              <button onClick={() => openEdit(client)}
-                className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-amber-200">
-                ✏️ Modifier
-              </button>
-              <button onClick={() => handleDelete(client)}
-                className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-200">
-                🗑️ Supprimer
-              </button>
             </div>
-          </div>
-        ))}
-        {filtered.length === 0 && (
+          )
+        })}
+
+        {filteredClients.length === 0 && (
           <div className="text-center py-12 text-gray-400">
             <div className="text-5xl mb-3">👤</div>
             <p>Aucun client trouvé</p>
           </div>
         )}
       </div>
+
+      {editingClient && editData && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md">
+            <h3 className="text-xl font-bold text-gray-800 mb-4">Modifier le client</h3>
+            <div className="space-y-3">
+              <input value={editData.name} onChange={event => updateEditField('name', event.target.value)} placeholder="Nom" className="w-full border rounded-xl px-3 py-2.5 uppercase" />
+              <input value={editData.firstname} onChange={event => updateEditField('firstname', event.target.value)} placeholder="Prénom" className="w-full border rounded-xl px-3 py-2.5" />
+              <input value={editData.phone} onChange={event => updateEditField('phone', event.target.value)} placeholder="Téléphone" className="w-full border rounded-xl px-3 py-2.5" />
+              <input value={editData.idNumber} onChange={event => updateEditField('idNumber', event.target.value)} placeholder="N° carte d’identité" className="w-full border rounded-xl px-3 py-2.5 uppercase" />
+              <select value={editData.origin} onChange={event => updateEditField('origin', event.target.value)} className="w-full border rounded-xl px-3 py-2.5">
+                <option value="exterieur">🌊 Extérieur</option>
+                <option value="hotel">🏨 Hôtel</option>
+              </select>
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button type="button" onClick={() => { setEditingClient(null); setEditData(null) }} className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl font-semibold">Annuler</button>
+              <button type="button" onClick={handleSaveEdit} disabled={saving} className="flex-1 bg-blue-700 text-white py-2.5 rounded-xl font-semibold disabled:opacity-50">{saving ? 'Enregistrement…' : 'Enregistrer'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
