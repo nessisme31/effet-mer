@@ -8,6 +8,7 @@ type ClientOrigin = 'hotel' | 'exterieur' | null
 
 type RentalWithClientData = Rental & {
   client_origin?: ClientOrigin
+  id_photo_url?: string | null
   client_id_document_path?: string | null
 }
 
@@ -82,8 +83,8 @@ export default function Clients() {
 
       if (existing) {
         existing.rentals.push(rental)
-        if (!existing.idDocumentPath && rental.client_id_document_path) {
-          existing.idDocumentPath = rental.client_id_document_path
+        if (!existing.idDocumentPath && (rental.id_photo_url || rental.client_id_document_path)) {
+          existing.idDocumentPath = rental.id_photo_url || rental.client_id_document_path || null
         }
         if (!existing.origin && rental.client_origin) {
           existing.origin = rental.client_origin
@@ -96,7 +97,7 @@ export default function Clients() {
           phone: rental.client_phone,
           idNumber: rental.client_id_number,
           origin: rental.client_origin || null,
-          idDocumentPath: rental.client_id_document_path || null,
+          idDocumentPath: rental.id_photo_url || rental.client_id_document_path || null,
           rentals: [rental],
         })
       }
