@@ -53,6 +53,7 @@ export default function Clients() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
+  const [dateFilter, setDateFilter] = useState('')
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [editingClient, setEditingClient] = useState<ClientSummary | null>(null)
   const [editData, setEditData] = useState<EditData | null>(null)
@@ -121,12 +122,19 @@ export default function Clients() {
     const value = search.trim().toLowerCase()
     if (!value) return clients
 
-    return clients.filter(client =>
-      `${client.firstname} ${client.name}`.toLowerCase().includes(value) ||
-      client.phone.toLowerCase().includes(value) ||
-      client.idNumber.toLowerCase().includes(value),
-    )
-  }, [clients, search])
+    return clients.filter(client => {
+      const matchesSearch = !value ||
+        `${client.firstname} ${client.name}`.toLowerCase().includes(value) ||
+        client.phone.toLowerCase().includes(value) ||
+        client.idNumber.toLowerCase().includes(value)
+
+      const matchesDate = !dateFilter || client.rentals.some(rental =>
+        rental.created_at.slice(0, 10) === dateFilter,
+      )
+
+      return matchesSearch && matchesDate
+    })
+  }, [clients, search, dateFilter])
 
   const openEdit = (client: ClientSummary) => {
     setEditingClient(client)
@@ -242,17 +250,41 @@ export default function Clients() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">Clients</h2>
-          <p className="text-gray-500 text-sm mt-1">{clients.length} client(s)</p>
+          <p className="text-gray-500 text-sm mt-1">{filteredClients.length} client(s) affiché(s)</p>
         </div>
       </div>
 
-      <input
-        type="text"
-        placeholder="🔍 Rechercher un nom, téléphone ou pièce d’identité..."
-        value={search}
-        onChange={event => setSearch(event.target.value)}
-        className="w-full border border-gray-300 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 mb-4 text-sm"
-      />
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 mb-4">
+        <input
+          type="text"
+          placeholder="🔍 Rechercher un nom, téléphone ou pièce d’identité..."
+          value={search}
+          onChange={event => setSearch(event.target.value)}
+          className="w-full border border-gray-300 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+        />
+        <div className="flex items-center gap-2">
+          <label htmlFor="client-date-filter" className="text-sm font-semibold text-gray-600 whitespace-nowrap">
+            📅 Jour
+          </label>
+          <input
+            id="client-date-filter"
+            type="date"
+            value={dateFilter}
+            onChange={event => setDateFilter(event.target.value)}
+            className="border border-gray-300 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+          />
+          {(search || dateFilter) && (
+            <button
+              type="button"
+              onClick={() => { setSearch(''); setDateFilter('') }}
+              className="text-gray-400 hover:text-gray-600 px-2 text-lg"
+              title="Effacer les filtres"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
 
       {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4">{error}</div>}
 
