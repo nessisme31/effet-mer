@@ -120,7 +120,6 @@ export default function Clients() {
 
   const filteredClients = useMemo(() => {
     const value = search.trim().toLowerCase()
-    if (!value) return clients
 
     return clients.filter(client => {
       const matchesSearch = !value ||
